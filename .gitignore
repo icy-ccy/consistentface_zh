@@ -1,0 +1,24 @@
+# LaTeX build artifacts
+*.aux
+*.bbl
+*.bcf
+*.blg
+*.fdb_latexmk
+*.fls
+*.log
+*.out
+*.run.xml
+*.synctex.gz
+*.toc
+*.xdv
+
+# Generated PDFs and temporary render outputs
+*.pdf
+output/
+tmp/
+
+# OS/editor noise
+.DS_Store
+Thumbs.db
+*.swp
+*.swo

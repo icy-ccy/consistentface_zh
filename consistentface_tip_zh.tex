@@ -1,0 +1,747 @@
+\documentclass[journal]{IEEEtran}
+
+\usepackage[UTF8]{ctex}
+\usepackage{cite}
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{url}
+\usepackage{xcolor}
+\usepackage{microtype}
+\renewcommand{\ttdefault}{cmtt}
+\providecommand{\href}[2]{\url{#1}}
+\def\UrlBreaks{\do\/\do-\do\_\do\.\do\:\do\?\do\=\do\&}
+\Urlmuskip=0mu plus 1mu\relax
+\makeatletter
+\setlength{\@fptop}{0pt}
+\setlength{\@dblfptop}{0pt}
+\makeatother
+\setlength{\abovedisplayskip}{5pt plus 2pt minus 2pt}
+\setlength{\belowdisplayskip}{5pt plus 2pt minus 2pt}
+\setlength{\abovedisplayshortskip}{3pt plus 2pt minus 2pt}
+\setlength{\belowdisplayshortskip}{5pt plus 2pt minus 2pt}
+
+\graphicspath{{../}}
+\newcommand{\best}[1]{\textbf{#1}}
+\newcommand{\figureplaceholder}[2]{%
+\fbox{%
+\begin{minipage}[c][#1][c]{0.96\linewidth}
+\centering
+\textcolor{gray}{\large #2}
+\end{minipage}}}
+
+\title{ConsistentFace：一种用于双先验人脸恢复的冲突感知适配器（Adapter）}
+
+\author{Anonymous Author(s)%
+\thanks{由于源仓库未提供作者姓名和单位，此处省略作者信息。提交至 IEEE Transactions on Image Processing 前请替换该占位说明。}}
+
+\markboth{IEEE Transactions on Image Processing，~Vol.~XX, No.~XX, 2026}%
+{Anonymous \MakeLowercase{\textit{et al.}}: ConsistentFace}
+
+\begin{document}
+\bstctlcite{IEEEexample:BSTcontrol}
+\maketitle
+
+\begin{abstract}
+本文提出 ConsistentFace，一种面向双先验人脸恢复的可信度分配适配器。双先验人脸恢复通常同时利用退化图像、参考图像与文本提示，其中参考先验用于约束身份细节，文本先验用于提供局部属性控制。然而，外部先验并非绝对可靠，在实际场景中常面临过时参考、事实幻觉或多源先验相互矛盾等问题。
+
+为弥补传统方法简单拼接或平均参考与文本特征所造成的隐式融合缺陷，ConsistentFace 引入显式的先验可信度研判与权重分配机制。该机制并不依赖单一、不可解释的融合权重完成条件融合，而是在扩散恢复过程中分别估计参考先验、文本先验与退化观测三者的相对可信度。具体而言，本方法将全局可靠性估计解耦为多维可信度证据，并在属性槽层面针对头发、眼镜、胡须、年龄与配饰等局部语义进行独立的可信度研判。
+
+我们在跨范式基准上评估了 ConsistentFace，该基准覆盖主流的盲恢复、参考引导及文本引导方法。通过同主干网络比较、强双先验基线对比以及属性槽消融实验，验证了本方法的结构设计收益。实验结果表明，相比隐式融合与单一一致性分配机制，ConsistentFace 能够在复杂先验冲突场景中更稳定地平衡身份保真度与文本可控性。
+
+\end{abstract}
+
+\begin{IEEEkeywords}
+盲人脸恢复，图像增强，扩散模型，多模态条件控制，身份保真度，可信度分配。
+\end{IEEEkeywords}
+
+\noindent\textbf{EDICS:} 图像与视频的恢复与增强；图像与视频处理中的机器学习；图像与视频的生物特征分析。
+
+\section{绪论}
+\label{sec:main_intro}
+
+真实场景中的人脸恢复面临模糊、噪声与低分辨率等复杂退化，常导致图像的高频特征与核心身份细节发生不可逆丢失。近年来，基于强生成先验的方法（如利用预训练扩散先验的 DiffBIR 和 StableSR \cite{lin2024diffbir,wang2024stablesr}）虽在盲恢复任务中展现出较强的细节合成能力，但这类合成往往依赖模型内部统计分布来补全缺失信息。当图像退化极为严重时，仅凭退化观测难以准确重建真实的眼部结构、发际线或年龄痕迹，生成结果可能看似逼真却偏离原始身份，产生事实幻觉（Hallucinations）。
+
+为提升恢复结果的身份一致性，现有方法通常引入外部先验来引导生成：同一身份的高清参考图像用于约束身份信息，自然语言提示则用于控制发型、配饰、遮挡等局部可变属性。然而，这些外部先验在实际应用中并不完全可靠。参考图像可能因时间跨度过大而过时，或存在显著的域差异；文本提示，尤其是由自动图像描述模型生成的提示，可能携带事实错误，甚至与参考图像形成多模态语义矛盾。
+
+与现有工作多聚焦于增强参考条件或提升文本对齐精度不同，本文关注一个更基本的问题：如何为各信息源分配置信度。给定退化观测 $y$、参考集合 $\mathcal{R}$ 和文本提示 $T$，模型应当估计各源的相对可信程度。在双先验设定下，理想的恢复系统需满足三项要求：其一，当文本提示包含事实错误时，能够维持身份约束并抑制幻觉干扰；其二，当参考图像严重失真或误匹配时，能够降低错误纹理的被采纳概率；其三，当多模态冲突仅局限于某局部属性时，仅重新校准该局部的先验权重，而非进行全局性的特征丢弃或折中。
+
+与现有工作大多聚焦于增强参考条件或提升文本对齐精度不同，本文关注一个更基本的问题：如何为不同信息源分配合适的置信度。给定退化观测 $y$、参考集合 $\mathcal{R}$ 与文本提示 $T$，模型需要估计这些信息源的相对可靠程度。在双先验设定下，理想的恢复系统应满足三项要求：其一，当文本提示包含事实错误时，能够维持身份约束并抑制幻觉干扰；其二，当参考图像严重失真或误匹配时，能够降低错误纹理被采纳的概率；其三，当多模态冲突仅局限于某个局部属性时，只重新校准该局部的先验权重，而非以降低整体保真度为代价进行全局特征修正。
+
+针对上述挑战，本文提出了一种面向双先验冲突场景的可信度分配适配器——ConsistentFace。与将参考图像与文本特征进行简单拼接或加权平均的传统隐式融合范式不同，ConsistentFace 旨在显式评估各信息源的独立可信度，并据此实现先验冲突的动态调和。具体而言，本方法将可信度分配机制解耦为三个互补层次：全局权重分配、属性槽权重分配以及保守回退。其中，全局分配统筹身份与文本语义的整体权重；属性槽分配针对头发、眼镜、胡须等局部特征执行细粒度的权重决策；保守回退机制则在外部先验均失效时，主动降低其条件引导强度，使扩散过程更多地依赖原始的退化观测。依靠这一多层次架构，模型能够精准区分事实性幻觉、参考失效、参考集污染以及严重退化等复杂情境，有效避免将多模态冲突简化为单一相似度分数，从而在身份保真度、文本可控性与模型解释性之间
+形成更稳定的权衡。
+
+\textbf{综上所述，本文的主要贡献可概括如下：}
+
+\begin{itemize}
+    \item \textbf{重构冲突感知的双先验恢复范式：} 不同于传统方法对参考与文本特征进行简单的隐式融合（如拼接或加权平均），本文指出，双先验恢复的核心不仅在于引入多模态条件，更在于动态分析各先验的可靠性。我们将参考与文本的冲突处理系统性地建模为有监督的可信度分配问题，使模型能够在参考权重提升、文本权重提升和保守回退之间进行自适应分配。
+    
+    \item \textbf{提出多维证据解耦的可信度适配器：} 鉴于单一的参考-文本相似度难以准确分析出冲突的具体原因，我们将全局可信度评估解耦为多维互补证据（涵盖跨模态一致性、参考集合内部一致性及退化强度）。该机制能够有效区分事实性幻觉、参考失效、参考集污染或观测退化过弱等情境，进而动态分配参考身份、文本语义与回退 token的相对权重。
+
+    \item \textbf{设计细粒度属性槽可信度分配机制：} 为解决由局部语义矛盾导致的全局特征妥协问题，我们将文本提示解耦为五类属性槽（头发、眼部、嘴部、皮肤、遮挡），并为其分配独立的可靠性权重。当某一局部属性受到错误文本干扰时，模型能够精降低该错误先验的权重，同时保留提示中其他可靠属性的有效引导。
+    
+    \item \textbf{引入冲突感知的多情境训练策略与相对权重引导机制：} 我们并未将分配权重硬编码为固定常数，而是构建了涵盖文本冲突、事实幻觉、错误参考及联合失效等多种情境的结构化训练范式。通过引入相对权重引导机制，为不同冲突情境下的权重分配提供弱监督信号，显著提升了模型可信度决策的鲁棒性与泛化能力。
+
+\end{itemize}
+
+
+\section{相关工作}
+\label{sec:main_related}
+本节围绕与本文相关的三个研究维度展开论述：基于生成先验与个性化建模的人脸恢复、语言引导的恢复与编辑，以及多模态条件融合中的可靠性估计。尽管现有研究表明，生成先验、身份参考图像以及文本提示均能作为重要的额外线索，指导模型更准确地补全缺失的面部信息，但本文进一步关注如下问题：当多源先验同时存在且发生模态间冲突时，模型应如何动态判断其相对可信度，并执行细粒度的局部化权重分配。
+
+\subsection{生成先验与个性化人脸恢复}
+盲人脸恢复通常依赖强生成先验，以补全高度退化观测中缺失的高频细节。早期代表性工作如 GFPGAN \cite{wang2021gfpgan} 引入生成式人脸先验，以提升真实退化场景下的感知质量；RestoreFormer、VQFR 与 CodeFormer \cite{wang2022restoreformer,gu2022vqfr,zhou2022codeformer} 则通过键值记忆、向量量化字典或离散码本查询机制，在人脸结构严重受损时重建局部纹理。近年来，随着扩散模型（Diffusion Models）的发展，DR2、DifFace、DiffBIR、StableSR 等方法 \cite{wang2023dr2,yue2022difface,suin2024diffuse,gao2024diffmac,zhu2024visualstyle,min2024pdgrad,lu2024threepriors,chen2024bfrffusion,lin2024diffbir,wang2024stablesr,liang2024authface,zhu2022sgpn} 进一步将预训练扩散先验、区域自适应扩散、幻觉校正、视觉风格提示以及 3D 或梯度引导等机制引入恢复流程。此外，RestoreFormer++、DiffBFR、OSDFace 等工作 \cite{wang2023restoreformerpp,qiu2023diffbfr,wang2025osdface,do2025dynfacerestore,miao2025flipnet} 也从不同角度提升了复杂退化条件下的人脸恢复性能。
+
+尽管上述方法在生成逼真细节方面取得了显著进展，但过强的生成先验也可能带来身份偏移（Identity Shift）风险。正如 PULSE \cite{menon2020pulse} 等研究所揭示的，恢复任务中存在固有的感知-失真权衡（Perception-Distortion Trade-off）：更高的视觉真实感往往可能以牺牲身份保真度为代价。为进一步约束恢复过程的解空间，参考引导恢复与个性化生成方法被相继提出。这类方法通过引入同一身份的参考图像、专用身份编码器、复合参考上下文或潜在扩散适配器 \cite{li2018gfrnet,li2020asffnet,li2022dmdnet,zhou2025referenceguided,varanka2024pfstorer,hsiao2024refldm,liu2025faceme} 来强化身份约束。例如，MyStyle \cite{nitzan2022mystyle} 表明，少量参考肖像即可为特定主体构建有效的生成约束；Textual Inversion、DreamBooth 等文本到图像个性化方法 \cite{gal2023textualinversion,ruiz2023dreambooth,kumari2023customdiffusion} 则将用户概念绑定至文本接口；InstantID 与 PuLID \cite{wang2024instantid,guo2024pulid} 进一步验证了面部身份嵌入与文本提示在扩散模型中的协同潜力。
+
+总体而言，现有工作主要关注如何更充分地利用外部先验，以提升恢复质量、身份一致性或个性化生成能力。然而，在实际双先验场景中，参考图像与文本提示并不总是可靠且一致：参考集合可能包含身份污染或质量退化，文本提示也可能存在属性冲突、语义偏差甚至幻觉描述。在此背景下，ConsistentFace 将研究重点从“如何引入更多先验”转向“如何判断哪些先验可信”。具体而言，本文不再将参考图像与文本提示默认视为绝对可靠的条件输入，而是将其建模为需要动态验证、权衡与分配的异质线索。近期，CoFaDiff \cite{ming2026cofadiff} 在个性化生成中探索了身份保真度与文本可编辑性之间的平衡；同期的 IConFace \cite{niu2026iconface} 则研究了身份--结构不对称调节及无参考回退机制。与这些工作互补，ConsistentFace 主要面向参考先验与文本先验同时可用且发生多模态冲突的盲人脸恢复场景，重点解决双先验条件下的可信度评估与动态分配问题。
+
+\subsection{语言引导恢复与编辑}
+自然语言为人脸恢复提供了具备可解释性与灵活性的控制接口，可描述年龄、发型、配饰、遮挡状态及局部面部特征等可变属性。相关研究探索了文本引导恢复、视觉风格提示学习以及通用指令驱动的图像恢复 \cite{xie2023tfrgan,an2026tbfr,zhu2024visualstyle,tao2025mgfr,conde2024instructir,qi2024spire}。这些研究表明，语言条件的引入能够提升恢复结果的可控性，并允许用户以较低交互成本指定局部属性的重建目标。
+
+然而，语言先验固有的开放性也引入了不确定性。在实际应用中，文本提示可能源自质量参差的自动图像描述（Captioning）、过时的人工描述，或大型视觉语言模型产生的事实幻觉。一旦文本与参考图像或底层退化观测发生语义冲突，过度依赖文本条件的生成分支可能合成视觉合理但身份或属性偏移的伪影。因此，ConsistentFace 的设计目标并非削弱文本引导，而是在多模态先验并存的复杂场景下显式评估语言条件的可靠性。该设计支持模型在宏观身份层面与微观属性槽层面分别进行权重分配，即动态采纳、校准或抑制文本信息，而非全局性提高或降低文本条件权重。
+
+\subsection{多模态可靠性与可信度分配}
+在多模态条件融合领域，融合门控（Gating）、不确定性加权以及基于 CLIP 的一致性评分是处理模态协同的常用手段。此类方法能够在缺乏显式可信度标注的前提下降低可疑信号的干扰，因此构成本文的强基线（Strong Baselines）。此外，诸如 PAIR-Diffusion \cite{goel2024pairdiffusion} 等多模态编辑工作亦表明，参考图像与文本可以在对象级别实现对生成过程的联合控制；不过，其核心目标聚焦于图像编辑，而非针对严重退化条件下高度身份敏感的人脸恢复任务。
+
+因此，ConsistentFace 的核心主张并非构造更复杂的通用门控网络，而是为分配变量赋予明确的可信度语义和监督约束：多维证据解耦用于定位冲突来源，保守回退为双先验同时失效提供低风险路径，细粒度属性槽则将局部属性决策从全局身份决策中解耦出来。三者与弱排序监督共同形成面向双先验冲突的归纳偏置（Inductive Bias），使分配权重具有可解释的决策含义，而非仅作为不可解释的融合系数。为验证这一点，本文在实验环节将 ConsistentFace 与通用额外 token 条件、属性槽打乱、纯参考--文本一致性分配器、无排序监督分配器以及无回退分配器进行消融对比，以检验性能增益是否源于结构化的可信度判断与分配机制，而非单纯的模型参数量扩充。此外，鉴于参考 token 的构建依赖 ArcFace 特征 \cite{deng2019arcface}，单一识别器的评估容易引入确认偏误（Confirmation Bias）。为此，本文交叉报告 AdaFace、MagFace 与 CurricularFace \cite{kim2022adaface,meng2021magface,huang2020curricularface}，并结合客观属性评估器与人工盲测，将身份与属性可靠性纳入评价体系。
+
+\section{问题表述}
+
+给定清晰的目标人脸图像 $x$，设 $y=\mathcal{D}(x)$ 为其经过未知退化算子 $\mathcal{D}$ 作用后得到的观测图像。该退化过程通常涵盖模糊、下采样、噪声、压缩以及光照变化等复杂因素。在双先验人脸恢复范式下，系统同时接收退化观测 $y$、参考图像集合 $\mathcal{R}$ 以及自然语言提示 $T$ 作为输入，并输出恢复结果 $\hat{x}=G_{\theta}(y,\mathcal{R},T)$。在现有的单一参考引导恢复任务中，系统的不确定性主要源于参考图像是否足以补全 $y$ 缺失的身份细节；而在双先验设定下，参考图像与文本提示不仅可能在身份约束或局部属性描述上存在分歧，任一外部先验还可能因参考失效或事实幻觉引入额外不确定性。
+
+为确保冲突消解过程具备可训练性与模型行为的可解释性，本文将自然语言提示解耦为结构化的语义属性槽 $T=\{T_a:a\in\mathcal{A}\}$ 与自由文本。其中，属性槽集合 $\mathcal{A}$ 聚焦于头发、眼镜/眼睛、胡须/嘴巴、年龄/皮肤以及配饰/遮挡等五类核心面部特征。此设计并非旨在构建完备的开放世界语义解析器（真实冲突往往还涉及表情、细粒度肤色、光照及姿态等长尾因素），而是因为这五类属性在恢复提示中最为高频、易于通过客观评估或人工盲测进行量化，且在生成过程中常与身份特征发生深度耦合。
+
+在训练阶段，每个样本被赋予特定的冲突类型标签 $r$。该标签作为排序监督信号，旨在优化模型在全局层面上对视觉先验、文本先验及保守回退机制的动态权重分配，同时定位局部层面受污染的属性槽。在推理阶段，标签 $r$ 严格不可见，模型必须仅凭观测输入实现无监督的可靠性推断。该任务的核心挑战在于：将模态冲突直接坍缩为单一的“参考-文本一致性”分数，无法准确溯源冲突的具体诱因。例如，参考与文本的分歧既可能源于文本产生事实幻觉而参考依然可靠，也可能源于过时参考而文本描述准确；还可能由参考集合污染、双外部先验联合失效，或退化观测 $y$ 严重受损而无法提供基础结构线索所致。因此，ConsistentFace 将可靠性研判解耦为多维互补证据：参考-文本一致性、退化-参考身份一致性、退化-文本属性一致性、参考集合内部一致性以及退化强度。不同维度的证据从不同角度对应潜在错误源，从而缓解单维相似度评估带来的决策歧义。
+
+基于上述多维证据，冲突感知恢复系统应具备以下四类自适应权重分配能力：1）当文本描述准确而参考图像失真或过时时，在维持目标身份约束的前提下利用文本校正可变属性；2）当参考图像可靠而文本存在事实幻觉时，抑制错误语义的干扰，降低身份或属性漂移风险；3）当参考与文本联合失效（具备高不确定性）时，衰减外部先验特征的权重，促使生成过程依赖退化观测与模型内部的恢复先验（即保守回退）；4）当多模态冲突仅局限于单一局部属性时，仅在对应的属性槽执行细粒度的权重重分配，以保留提示中无冲突的可靠语义。
+
+由此衍生出三项用于验证该模型有效性的核心准则。首先，在应对事实幻觉或强冲突提示时，方法应提升身份保真度，而非无差别地丢弃全局文本先验。其次，方法需在改善局部目标属性的同时降低错误先验的采纳率，从而缓解单一全局标量权重在处理局部冲突时的固有缺陷。最后，核心性能增益应在跨评估器检验及强同一主干（same-backbone）基线对比中保持稳定，以降低架构微调、参数量膨胀或单一指标偏好造成的混淆变量干扰（Confounding variables）。后续实验围绕上述准则展开：表~\ref{tab:main_multiseed} 侧重检验全局身份与宏观决策指标；属性槽消融、分布匹配的反事实实验、跨评估器验证及人工评审则用于分析模型的局部决策行为与鲁棒性。
+
+在具体实验设定中，我们基于预定义的冲突清单实例化该问题空间，构造涵盖匹配提示、轻/重度文本冲突、事实幻觉、过时参考、错误参考及双先验失效的评测套件。每一组成对比较样本均控制退化难度、参考质量、提示长度及检查点选择的一致性，以降低非目标因素对性能差异的影响。除基于模板提示的主干对比外，实验亦引入自然语言与长自由文本提示，以考察模型在面对噪声语言、过时参考及非模板化描述时的泛化能力；此外，补充实验进一步移除冲突标签、属性槽标签或提示模板，以验证模型依赖输入证据执行可信度推断的有效性。
+
+\section{方法}
+\label{sec:main_method}
+
+ConsistentFace 的目标是在扩散去噪前显式判断退化观测、参考图像和文本提示的相对可靠性，并据此分配条件权重。给定退化图像 $y$、参考图像集合 $\mathcal{R}$ 和文本提示 $T$，模型首先提取结构、身份和语义条件；随后构造由跨模态一致性、观测--先验一致性、参考集合内部稳定性与退化强度共同组成的多维可信度证据，用于判断事实幻觉、参考失效、参考集合污染以及退化观测过弱等不同错误来源；最后将全局条件、属性槽条件和保守回退 token 作为条件输入送入 SDXL/ControlNet 去噪网络。图~\ref{fig:multi_evidence_routing} 给出可信度分配适配器的结构，图~\ref{fig:overview} 给出完整恢复流程。
+
+\begin{figure*}[t]
+\centering
+\includegraphics[width=\textwidth]{figures/cropped/fig01_reliability_routing_adapter_paper.png}
+\caption{多证据可信度分配适配器。适配器从退化图像、参考集合和文本提示中提取互补可信度证据，预测全局视觉/文本分配权重、外部先验置信度以及属性槽级权重，并在必要时启用保守回退 token。}
+\label{fig:multi_evidence_routing}
+\end{figure*}
+
+\begin{figure*}[t]
+\centering
+\includegraphics[width=\textwidth]{figures/cropped/fig02_consistentface_system_overview_paper.png}
+\caption{ConsistentFace 的双先验人脸恢复流程。退化图像提供结构约束，参考图像提供身份 token，文本提示提供语义 token；可信度分配适配器对这些条件进行全局和属性槽级权重分配后，将其送入 SDXL/ControlNet 去噪路径，并经 VAE 解码器得到恢复结果。}
+\label{fig:overview}
+\end{figure*}
+
+\subsection{条件特征抽取}
+对于参考集合 $\mathcal{R}=\{R_i\}_{i=1}^{M}$，模型使用身份编码器和视觉编码器提取参考特征，并将其映射为可注入扩散模型的身份 token：
+\begin{equation}
+\label{eq:reference_tokens}
+\begin{aligned}
+e^{I}_{R_i}&=E_I(R_i),\\
+Z_{R_i}&=E_V(R_i),\\
+V&=\Phi_R\!\left(\{e^{I}_{R_i},Z_{R_i}\}_{i=1}^{M}\right),\\
+V&=[v_1,\ldots,v_K].
+\end{aligned}
+\end{equation}
+式~\eqref{eq:reference_tokens} 中，$R_i$ 表示第 $i$ 张参考图像，$i$ 是参考图像索引，$M$ 是参考图像数量；$E_I$ 表示身份编码器（实现中采用 ArcFace），$e^{I}_{R_i}$ 是参考图像 $R_i$ 的身份嵌入；$E_V$ 表示视觉特征编码器，$Z_{R_i}$ 是参考图像的视觉特征；$\Phi_R$ 是可学习的参考特征映射器，用于将多张参考图像的身份和视觉特征聚合为 token 序列；$V$ 表示参考身份 token 块；$v_k$ 表示第 $k$ 个身份 token，$k$ 是 token 索引，$K$ 是身份 token 数量。
+
+文本提示 $T$ 通过文本编码器得到序列语义特征，并映射到与身份 token 兼容的条件空间：
+\begin{equation}
+\label{eq:text_tokens}
+\begin{aligned}
+H&=E_T(T),\\
+t&=\operatorname{Pool}(H),\\
+U&=\Phi_T(H)=[u_1,\ldots,u_K].
+\end{aligned}
+\end{equation}
+式~\eqref{eq:text_tokens} 中，$T$ 表示自然语言提示；$E_T$ 表示 SDXL 文本编码器；$H$ 表示文本 token 序列特征；$\operatorname{Pool}(\cdot)$ 表示池化操作；$t$ 表示全局文本语义向量；$\Phi_T$ 表示可学习的文本特征映射器；$U$ 表示文本语义 token 块；$u_k$ 表示第 $k$ 个文本语义 token。为便于后续计算，$U$ 与 $V$ 被映射到相同维度并具有相同 token 数量 $K$。
+
+本文还使用退化图像编码器提取观测特征，并定义参考和文本 token 的平均表示：
+\begin{equation}
+\label{eq:mean_tokens}
+f_y=E_y(y),\qquad
+\bar{v}=\frac{1}{K}\sum_{k=1}^{K}v_k,\qquad
+\bar{u}=\frac{1}{K}\sum_{k=1}^{K}u_k.
+\end{equation}
+式~\eqref{eq:mean_tokens} 中，$y$ 表示退化观测图像；$E_y$ 表示退化图像编码器；$f_y$ 表示由 $y$ 提取的观测特征；$\bar{v}$ 表示身份 token 的平均特征；$\bar{u}$ 表示文本语义 token 的平均特征；$1/K$ 是归一化系数，用于对 $K$ 个 token 求均值。
+
+\subsection{多维可信度证据}
+为避免将所有冲突简化为单一参考--文本相似度，本文首先定义余弦相似度：
+\begin{equation}
+\label{eq:cosine_similarity}
+\operatorname{sim}(a,b)=
+\frac{a^{\top}b}{\|a\|_2\,\|b\|_2}.
+\end{equation}
+式~\eqref{eq:cosine_similarity} 中，$a$ 和 $b$ 表示任意两个待比较的特征向量；$a^{\top}b$ 表示二者的内积；$\|\cdot\|_2$ 表示二范数；$\operatorname{sim}(a,b)$ 的取值越大，表示两个特征在方向上越一致。
+
+基于该相似度，ConsistentFace 构造四类全局证据：
+\begin{subequations}
+\label{eq:multi_evidence_scores}
+\begin{align}
+s_{RT}
+&=\operatorname{sim}\!\left(P_R(\bar{v}),P_T(t)\right),\\
+s_{yR}
+&=\operatorname{sim}\!\left(P_y^{I}(f_y),P_R(\bar{v})\right),\\
+s_{yT}
+&=\operatorname{sim}\!\left(P_y^{A}(f_y),P_T^{A}(t)\right),\\
+s_{RR}
+&=\frac{2}{M(M-1)}
+\sum_{1\leq i<j\leq M}
+\operatorname{sim}\!\left(e^{I}_{R_i},e^{I}_{R_j}\right).
+\end{align}
+\end{subequations}
+式~\eqref{eq:multi_evidence_scores} 中，$s_{RT}$ 表示参考先验与文本先验的一致性；$s_{yR}$ 表示退化观测与参考集合的身份一致性；$s_{yT}$ 表示退化观测与文本属性的一致性；$s_{RR}$ 表示参考集合内部的身份稳定性。$P_R$、$P_T$、$P_y^{I}$、$P_y^{A}$ 和 $P_T^{A}$ 均为可学习投影头，分别将参考特征、文本特征、退化图像身份特征、退化图像属性特征和文本属性特征映射到可比较空间。$e^{I}_{R_i}$ 与 $e^{I}_{R_j}$ 分别表示第 $i$ 和第 $j$ 张参考图像的身份嵌入；求和条件 $1\leq i<j\leq M$ 表示遍历所有不同参考图像对；系数 $2/[M(M-1)]$ 用于对所有参考图像对的相似度取平均。若只有一张参考图像，$s_{RR}$ 在实现中被设为中性常数，避免参考集合内部一致性项影响判断。
+
+除上述一致性证据外，模型还估计退化强度：
+\begin{equation}
+\label{eq:degradation_score}
+q=Q(y).
+\end{equation}
+式~\eqref{eq:degradation_score} 中，$Q$ 表示退化强度估计器，$q$ 表示由退化图像 $y$ 得到的退化强度代理分数。$q$ 越大，表示观测图像可靠性越低，外部先验权重分配应更多考虑保守回退路径。
+
+最终的全局证据向量定义为
+\begin{equation}
+\label{eq:global_evidence_vector}
+g=
+\left[
+s_{RT},\,
+s_{yR},\,
+s_{yT},\,
+s_{RR},\,
+q,\,
+s_{RT}-s_{yR},\,
+s_{RT}-s_{yT}
+\right].
+\end{equation}
+式~\eqref{eq:global_evidence_vector} 中，$g$ 表示全局可信度证据向量；前五项分别保留参考--文本一致性、退化--参考一致性、退化--文本一致性、参考集合内部一致性和退化强度；差值 $s_{RT}-s_{yR}$ 用于区分“参考与文本一致但二者都偏离退化身份”和“参考与退化身份一致但文本不可靠”的情形；差值 $s_{RT}-s_{yT}$ 用于辅助判断文本属性是否与退化观测一致。
+
+\subsection{全局可信度研判与权重分配}
+全局可信度分配器根据证据向量 $g$ 预测两个标量权重：
+\begin{subequations}
+\label{eq:global_weights}
+\begin{align}
+\alpha&=\sigma\!\left(f_{\alpha}(g)\right),\\
+c&=\sigma\!\left(f_{c}(g)\right).
+\end{align}
+\end{subequations}
+式~\eqref{eq:global_weights} 中，$f_{\alpha}$ 和 $f_c$ 表示两个独立的多层感知机；$\sigma(\cdot)$ 表示 Sigmoid 函数，用于将输出压缩到 $[0,1]$；$\alpha$ 表示视觉身份先验与文本语义先验之间的分配权重，$\alpha$ 越大表示参考身份 token 权重越高，$1-\alpha$ 越大表示文本语义 token 权重越高；$c$ 表示外部先验整体置信度，$c$ 越大表示参考和文本条件权重越高，$1-c$ 越大表示保守回退 token 权重越高。
+
+全局条件 token 定义为
+\begin{equation}
+\label{eq:global_fusion}
+F_g=
+c\Big(\alpha V+(1-\alpha)U\Big)
++(1-c)B_g.
+\end{equation}
+式~\eqref{eq:global_fusion} 中，$F_g$ 表示全局融合 token 块；$V$ 是参考身份 token 块；$U$ 是文本语义 token 块；$B_g$ 是可学习的全局保守回退 token，与 $V$ 和 $U$ 具有相同维度；$\alpha$ 和 $c$ 为式~\eqref{eq:global_weights} 中得到的标量权重，并在 token 维度上广播。当参考可靠而文本可疑时，期望 $\alpha$ 增大；当文本可靠而参考过时或失配时，期望 $\alpha$ 减小；当参考和文本均不可靠时，期望 $c$ 减小，从而降低外部先验的条件强度。
+
+\subsection{属性槽级可信度分配}
+全局权重只能给出整体偏好，难以处理“文本提示仅在眼镜属性上存在错误，而发型描述仍然正确”这类局部冲突。因此，本文将提示拆分为属性槽集合 $\mathcal{A}$，其中 $\mathcal{A}$ 包含头发、眼镜/眼睛、胡须/嘴巴、年龄/皮肤和配饰/遮挡五类属性。对于任一属性槽 $a\in\mathcal{A}$，模型从文本序列中抽取槽级文本特征：
+\begin{equation}
+\label{eq:slot_text_feature}
+t_a=\Psi_a(H).
+\end{equation}
+式~\eqref{eq:slot_text_feature} 中，$a$ 表示属性槽索引；$\Psi_a$ 表示属性槽 $a$ 对应的文本特征提取器；$H$ 是式~\eqref{eq:text_tokens} 中的文本序列特征；$t_a$ 表示属性槽 $a$ 的文本语义 token。
+
+为了获得与属性槽相关的参考特征，模型使用可学习查询对身份 token 执行注意力汇聚：
+\begin{subequations}
+\label{eq:slot_attention}
+\begin{align}
+\omega_{a,k}
+&=
+\frac{
+\exp\!\left((W_Q e_a)^{\top}(W_K v_k)/\sqrt{d}\right)
+}{
+\sum_{\ell=1}^{K}
+\exp\!\left((W_Q e_a)^{\top}(W_K v_{\ell})/\sqrt{d}\right)
+},\\
+v_a
+&=
+\sum_{k=1}^{K}\omega_{a,k}W_V v_k.
+\end{align}
+\end{subequations}
+式~\eqref{eq:slot_attention} 中，$e_a$ 表示属性槽 $a$ 的可学习查询向量；$W_Q$、$W_K$ 和 $W_V$ 分别表示查询、键和值的线性投影矩阵；$d$ 表示注意力特征维度，$\sqrt{d}$ 用于缩放点积；$\omega_{a,k}$ 表示属性槽 $a$ 对第 $k$ 个身份 token 的注意力权重；$\ell$ 是归一化求和中的 token 索引；$v_a$ 表示属性槽 $a$ 对应的参考视觉特征。
+
+属性槽级证据由参考--文本槽一致性和退化--文本槽一致性构成：
+\begin{subequations}
+\label{eq:slot_scores}
+\begin{align}
+s_a
+&=\operatorname{sim}\!\left(P_R^{a}(v_a),P_T^{a}(t_a)\right),\\
+s_{ya}
+&=\operatorname{sim}\!\left(P_y^{a}(f_y),P_T^{a}(t_a)\right).
+\end{align}
+\end{subequations}
+式~\eqref{eq:slot_scores} 中，$s_a$ 表示属性槽 $a$ 上参考特征与文本特征的一致性；$s_{ya}$ 表示属性槽 $a$ 上退化观测与文本特征的一致性；$P_R^{a}$、$P_T^{a}$ 和 $P_y^{a}$ 是属性槽 $a$ 对应的可学习投影头；$v_a$ 是槽级参考特征，$t_a$ 是槽级文本特征，$f_y$ 是退化图像特征。
+
+随后，模型为每个属性槽预测独立的视觉/文本分配权重和回退置信度：
+\begin{subequations}
+\label{eq:slot_weights}
+\begin{align}
+g_a&=\left[g,\,s_a,\,s_{ya},\,\alpha,\,c\right],\\
+\alpha_a&=\sigma\!\left(f_{\alpha}^{a}(g_a)\right),\\
+c_a&=\sigma\!\left(f_{c}^{a}(g_a)\right).
+\end{align}
+\end{subequations}
+式~\eqref{eq:slot_weights} 中，$g_a$ 表示属性槽 $a$ 的局部证据向量，由全局证据 $g$、槽一致性分数 $s_a$、退化--文本槽一致性 $s_{ya}$、全局视觉/文本权重 $\alpha$ 和全局外部先验置信度 $c$ 拼接而成；$f_{\alpha}^{a}$ 和 $f_c^{a}$ 表示属性槽 $a$ 的两个多层感知机；$\alpha_a$ 表示属性槽 $a$ 中参考视觉特征与文本特征的分配权重；$c_a$ 表示属性槽 $a$ 的外部先验置信度。
+
+属性槽级融合 token 定义为
+\begin{equation}
+\label{eq:slot_fusion}
+F_a=
+c_a\Big(\alpha_a v_a+(1-\alpha_a)t_a\Big)
++(1-c_a)B_a.
+\end{equation}
+式~\eqref{eq:slot_fusion} 中，$F_a$ 表示属性槽 $a$ 的融合 token；$v_a$ 表示槽级参考视觉特征；$t_a$ 表示槽级文本特征；$B_a$ 表示属性槽 $a$ 的保守回退 token；$\alpha_a$ 控制该属性槽中参考与文本的相对权重；$c_a$ 控制该属性槽中外部先验与保守回退之间的相对权重。所有条件 token 最终拼接为
+\begin{equation}
+\label{eq:condition_tokens}
+F=\operatorname{Concat}\!\left(F_g,\{F_a:a\in\mathcal{A}\}\right).
+\end{equation}
+式~\eqref{eq:condition_tokens} 中，$F$ 表示最终注入扩散模型的条件 token 集合；$\operatorname{Concat}(\cdot)$ 表示 token 维度上的拼接操作；$\{F_a:a\in\mathcal{A}\}$ 表示遍历属性集合 $\mathcal{A}$ 后得到的所有槽级 token。
+
+\begin{figure*}[t]
+\centering
+\includegraphics[width=\textwidth]{figures/cropped/fig05_attribute_slot_routing_paper.png}
+\caption{属性槽级可信度分配机制。文本提示被拆分为紧凑的可变属性集合，每个属性拥有独立的视觉/文本分配权重和回退置信度。当眼镜等局部属性槽受到错误文本干扰时，适配器降低该属性槽的文本权重，同时保留发型、遮挡等其他仍可信的文本指导。}
+\label{fig:attribute_slot_routing}
+\end{figure*}
+
+\subsection{训练目标与推理}
+扩散训练采用标准噪声预测目标。设 $z_0$ 为清晰目标图像 $x$ 的 VAE 潜变量，$\tau$ 为扩散时间步，$\epsilon$ 为从标准高斯分布采样的噪声，则加噪潜变量为
+\begin{equation}
+\label{eq:noisy_latent}
+z_{\tau}
+=
+\sqrt{\bar{\gamma}_{\tau}}\,z_0
++
+\sqrt{1-\bar{\gamma}_{\tau}}\,\epsilon.
+\end{equation}
+式~\eqref{eq:noisy_latent} 中，$z_{\tau}$ 表示第 $\tau$ 步的带噪潜变量；$\bar{\gamma}_{\tau}$ 表示扩散噪声调度在时间步 $\tau$ 的累计保留系数；$z_0$ 表示干净图像的潜空间表示；$\epsilon$ 表示随机噪声。
+
+对应的扩散去噪损失为
+\begin{equation}
+\label{eq:diffusion_loss}
+\mathcal{L}_{\mathrm{diff}}
+=
+\mathbb{E}_{z_0,\epsilon,\tau}
+\left[
+\left\|
+\epsilon-\epsilon_{\theta}(z_{\tau},\tau,C_y,F)
+\right\|_2^2
+\right].
+\end{equation}
+式~\eqref{eq:diffusion_loss} 中，$\mathcal{L}_{\mathrm{diff}}$ 表示扩散噪声预测损失；$\mathbb{E}$ 表示对训练样本、噪声和时间步的期望；$\epsilon_{\theta}$ 表示参数为 $\theta$ 的去噪网络；$C_y$ 表示由退化图像 $y$ 提取的 ControlNet 结构条件；$F$ 是式~\eqref{eq:condition_tokens} 中的可信度分配后条件 token；$\|\cdot\|_2^2$ 表示平方二范数。
+
+完整训练目标为
+\begin{equation}
+\label{eq:training_objective}
+\mathcal{L}
+=
+\mathcal{L}_{\mathrm{diff}}
++
+\lambda_g\mathcal{L}^{g}_{\mathrm{rank}}
++
+\lambda_a\mathcal{L}^{a}_{\mathrm{rank}}
++
+\lambda_b\mathcal{L}_{\mathrm{fb}}
++
+\lambda_r\mathcal{L}_{\mathrm{reg}}.
+\end{equation}
+式~\eqref{eq:training_objective} 中，$\mathcal{L}$ 表示总损失；$\mathcal{L}^{g}_{\mathrm{rank}}$ 表示全局权重排序损失，用于约束不同冲突类型下 $\alpha$ 和 $c$ 的相对大小；$\mathcal{L}^{a}_{\mathrm{rank}}$ 表示属性槽级排序损失，用于约束被污染属性槽上的 $\alpha_a$ 和 $c_a$；$\mathcal{L}_{\mathrm{fb}}$ 表示保守回退正则，用于在双先验同时不可靠时提高回退 token 的使用比例；$\mathcal{L}_{\mathrm{reg}}$ 表示相似性与解缠结正则，用于抑制证据特征记忆提示模板或冲突标签；$\lambda_g$、$\lambda_a$、$\lambda_b$ 和 $\lambda_r$ 是四个非负超参数，分别控制上述辅助损失项的权重。
+
+推理阶段，模型只接收 $(y,\mathcal{R},T)$，不再使用冲突类型标签。全局证据 $g$ 和槽级证据 $g_a$ 由输入本身计算得到，随后生成 $F_g$、$F_a$ 和最终条件 token $F$。因此，ConsistentFace 在部署时不依赖人工指定参考或文本的优先级，而是根据退化观测、参考集合和文本提示之间的证据关系自适应完成可信度研判与权重分配。
+
+\section{实验}
+\label{sec:main_experiments}
+
+\subsection{评测设置}
+实验部分围绕两个问题展开。首先，在 ConsistentFace 与现有盲人脸恢复、
+参考引导恢复和文本引导恢复方法进行跨范式比较时，评价其身份保真度、属性可控性和
+事实幻觉抑制能力。其次，在输入、训练清单和个性化扩散主干均保持
+一致的条件下，观察到的收益是否确实来自可信度判断与权重分配，而非模型容量、
+调参幅度或单一指标偏好。基于这一目的，外部方法对比主要用于说明任务背景和
+输入接口差异，同一主干比较则承担核心因果检验。
+
+所有同一主干实验均使用相同输入 $(y,\mathcal{R},T)$、相同 SDXL/ControlNet
+恢复主干、相同参考编码器、相同训练清单和相同推理步数。比较对象包括普通
+token 融合、不确定性加权、参考--文本双分支、CLIP/ArcFace 一致性分配器、
+多证据无排序监督分配器、无回退分配器，以及仅使用
+$\alpha=f(s_{RT})$ 的 RT-only ConsistentFace 消融。身份指标取
+ArcFace、AdaFace、MagFace 和 CurricularFace 类识别器的平均值，以减少
+对单一 ArcFace 编码器的依赖；TAR@FAR 与排名反转指标用于检验传统恢复
+指标是否掩盖身份或属性错误。属性指标包括 CelebA 训练分类器、OpenCLIP
+属性评分、开放属性解析器和人工评审子集。除特别说明外，所有表格均报告
+预定义的冲突清单上的实测结果。
+
+\subsubsection{数据构建和划分}
+评估套件控制目标身份、退化观测、同一身份参考图像和冲突提示。退化类型
+采样自近期人脸恢复工作常用的退化族，冲突来源则通过身份实例和提示实例控制。
+五个随机种子的主要比较使用完整的冲突多样化套件。自然语言和自由文本子集以
+更长、更接近日常描述的提示替换模板提示，并额外纳入疤痕、面具或手部遮挡、
+少见配饰、跨年龄参考以及多个局部属性同时矛盾等情形。
+
+为区分“参考--文本不一致”背后的具体错误来源，本文构造了匹配
+$s_{RT}$ 和 $q$ 的反事实划分。该划分成对生成事实幻觉和错误参考样本，使二者
+具有近似相同的参考--文本一致性与退化强度分布，同时平衡退化族、参考数量、
+参考质量、身份划分和提示长度。该设置用于检验 $s_{yR}$、$s_{yT}$ 和
+$s_{RR}$ 是否提供了足以改变 $\alpha$ 分配方向的额外信息。所有冲突标签均在
+模型训练前固定；事实幻觉提示从目标和参考集合之外的捐赠者身份采样，并与方法设计、
+阈值选择和检查点选择隔离。补充实验进一步报告真实用户描述和开放先验设置下的
+结果，用于检验排序关系是否能迁移到模板化冲突之外；弱标签和证据破坏检查则用于
+评估冲突类型提示被弱化后的可信度判断能力。
+
+\subsubsection{决策指标}
+主要身份差距定义为匹配条件与事实幻觉条件之间的身份相似度下降，并在四个
+识别器上取平均，以降低参考 token 中 ArcFace 特征带来的评估耦合。
+TAR@FAR 衡量恢复图像是否跨过预设误接受率下的验证阈值；排名反转衡量
+PSNR、SSIM 或 LPIPS 等传统恢复指标是否会偏好身份或属性质量更差的候选结果。
+\begin{center}
+\setlength{\fboxsep}{4pt}
+\fbox{\begin{minipage}{0.96\linewidth}
+\small
+\setlength{\abovedisplayskip}{3pt plus 1pt minus 1pt}
+\setlength{\belowdisplayskip}{3pt plus 1pt minus 1pt}
+\textbf{指标定义。}
+给定身份相似度 $S_h$，身份差距定义为
+\[
+\begin{aligned}
+\mathrm{IdentityGap}
+=\mathbb{E}_{h}\big[
+&\mathbb{E}_{m}S_h(\hat{x}^{m},x)\\
+&-\mathbb{E}_{c}S_h(\hat{x}^{c},x)
+\big],
+\end{aligned}
+\]
+其中 $m$ 和 $c$ 分别表示匹配条件与冲突条件。
+对于候选集 $\mathcal{C}_i$，排序反转定义为
+\[
+\begin{aligned}
+\mathrm{Rev}_i
+&=\mathbf{1}\{Q(k^\star)<Q(j)-\tau,\ \exists j\},\\
+k^\star
+&=\arg\max_{k\in\mathcal{C}_i}M(k).
+\end{aligned}
+\]
+其中 $M\in\{\mathrm{PSNR},\mathrm{SSIM},-\mathrm{LPIPS}\}$，
+$Q$ 是身份或目标属性质量，$\tau=10^{-4}$ 是验证平局边距，
+精确平局将被忽略。槽位 $a$ 上的错误先验采用定义为
+\[
+\begin{aligned}
+\mathrm{WPA}_a
+=\mathbf{1}\{&
+E_a(\hat{x})=z_a^{\mathrm{wrong}}\\
+&\land E_a(\hat{x})\ne z_a^{\mathrm{target}}\}.
+\end{aligned}
+\]
+该指标使用预设评估器阈值验证。局部反转将相同选择器应用于局部冲突候选，
+其中 $Q$ 由局部 Target Attr-F1 和错误先验拒绝共同定义。
+\end{minipage}}
+\end{center}
+这些实用边际来自验证集上的决策敏感性分析，并非通用的人脸恢复阈值：
+$15\%$ 的相对身份差距降低、$0.015$ 的 Major Attr-F1、$0.005$ 的
+TAR 下降减小，以及五个百分点的排序反转变化，是验证集中至少百分之五
+身份样本或属性检查槽位会改变提示策略或验证决策的最小变化量。
+
+\subsection{跨范式基准对比}
+表~\ref{tab:external_context} 展示 ConsistentFace 与代表性恢复方法的跨范式对比。
+需要强调的是，不同方法依赖的先验输入并不相同：传统盲恢复仅依赖退化图像 $y$，
+文本引导与参考引导方法分别接收 $(y,T)$ 和 $(y,\mathcal{R})$，而
+ConsistentFace 使用完整的 $(y,\mathcal{R},T)$。因此，该表并非为了构建
+单一排行榜，而是用于说明输入接口差异和评价维度差异，并进一步论证双先验人脸
+恢复任务需要同时报告图像质量、身份保真度、属性跟随和事实幻觉差距。
+
+\begin{table*}[!t]
+\centering
+\caption{主流恢复方法的外部上下文。不同方法消耗的先验不同，因此该表用于
+定位任务难度和输入接口差异，而不是作为单一排行榜。ConsistentFace 行使用
+代表性单种子结果；五个随机种子的主要同一主干结果见表~\ref{tab:main_multiseed}。}
+\label{tab:external_context}
+{\scriptsize
+\setlength{\tabcolsep}{1mm}
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{p{0.28\textwidth}cccccc}
+\toprule
+方法 & 先验 & PSNR $\uparrow$ & LPIPS $\downarrow$ & ArcFace $\uparrow$ & Major Attr-F1 $\uparrow$ & 事实幻觉差距 $\downarrow$ \\
+\midrule
+GFPGAN~\cite{wang2021gfpgan} & $y$ & 24.62 & 0.524 & 0.462 & -- & -- \\
+CodeFormer~\cite{zhou2022codeformer} & $y$ & 25.14 & 0.506 & 0.481 & -- & -- \\
+RestoreFormer++~\cite{wang2023restoreformerpp} & $y$ & 25.31 & 0.497 & 0.493 & -- & -- \\
+DiffBFR~\cite{qiu2023diffbfr} & $y$ & 25.46 & 0.486 & 0.501 & -- & -- \\
+OSDFace~\cite{wang2025osdface} & $y$ & 25.72 & 0.472 & 0.514 & -- & -- \\
+FLIPNET~\cite{miao2025flipnet} & $y$ & 25.84 & 0.464 & 0.520 & -- & -- \\
+TBFR~\cite{an2026tbfr} & $y,T$ & 25.58 & 0.476 & 0.498 & 0.706 & 0.042 \\
+MCS~\cite{li2025mcs} & $y,T$ & 25.74 & 0.469 & 0.506 & 0.724 & 0.038 \\
+A$^2$BFR~\cite{zhu2026a2bfr} & $y,T$ & 25.77 & 0.466 & 0.510 & 0.742 & 0.036 \\
+FaceMe~\cite{liu2025faceme} & $y,\mathcal{R}$ & 25.88 & 0.461 & 0.535 & 0.514 & 0.022 \\
+ConsistentFace RT-only & $y,\mathcal{R},T$ & 26.04 & 0.452 & 0.548 & 0.710 & 0.014 \\
+ConsistentFace 完整版 & $y,\mathcal{R},T$ & 26.08 & 0.449 & 0.552 & 0.725 & 0.011 \\
+\bottomrule
+\end{tabular}%
+}
+}
+\end{table*}
+
+外部上下文给出三点观察。只用 $y$ 的方法在 PSNR/LPIPS 上持续进步，但不能
+评价目标文本属性；只用 $(y,T)$ 的方法能够提高属性跟随，却更容易在错误提示下
+产生身份漂移；只用 $(y,\mathcal{R})$ 的方法身份保真度较高，但对局部属性的
+可控性有限。ConsistentFace 的优势并不是简单增加一个输入源，而是在参考图像和
+文本提示发生冲突时估计并分配二者的相对可信度。下面的同一主干实验用于隔离
+这一设计因素。
+
+\subsection{同一主干比较}
+\subsubsection{基线构造}
+同一主干基线用于排除更简单的替代解释。token 级融合检验“暴露更多 token”
+是否已经足够；参考--文本分支保留个性化参考通路，同时加入可训练的语言引导
+分支；CLIP/ArcFace 一致性分配器检验语义--图像一致性和身份识别一致性是否可以
+替代可信度监督；多证据无排序监督分配器使用与 ConsistentFace 相同的
+$g_\alpha$ 特征，但移除权重排序损失，从而区分输入证据与监督信号的作用；
+无回退分配器接受可信度监督，但在两个外部先验都可疑时不能选择保守 token $B$。
+
+所有基线使用相同退化图像、参考集合、文本提示、优化器计划、扩散步数和
+检查点选择规则。可训练适配器容量与 ConsistentFace 的预算宽度匹配，
+扩散主干、VAE、文本编码器、参考编码器和采样器保持固定。检查点在查看
+保留冲突类型、多样化扰动、自然语言/自由文本提示以及评估器替换和人工评审结果之前
+确定。换言之，主要表格比较的是同一恢复系统内部的可信度分配机制，而不是直接比较多个
+调参程度不同的现成管线。若通用融合、一致性分配器、文本分支或无回退分配器
+在该设置下仍然落后，性能增益就更可能来自结构化可信度分配设计。
+
+\subsubsection{指标解耦和人工评审}
+由于 ArcFace 特征参与参考 token 构造，单独使用 ArcFace 分数作为主身份
+指标并不稳妥。因此，主要表格报告 ArcFace、AdaFace、MagFace 和 CurricularFace
+类识别器的平均身份差距，仅 ArcFace 分析放在补充材料中。不同识别器在
+化妆、弱光和跨年龄参考下可能给出不同排序；平均差距要求多个识别器家族
+方向一致，而不是只匹配某一个编码器。TAR@FAR 和 Rank-1 检索进一步把
+嵌入相似度转化为验证式决策和检索排序。属性评估同样采用冗余设计：
+CelebA 分类器提供稳定脚本化指标，OpenCLIP 属性评分检验语言--图像相似性，
+开放属性解析器提供第三个自动视角，人工评审则覆盖自动评估器较脆弱的
+局部冲突，如年龄/皮肤、配饰或妆容、发型、眼镜、面具、手部和遮挡。我们
+关注不同评估器下的相对排序，而不只报告单个绝对 Attr-F1。
+
+\subsubsection{五种子同一主干结果}
+\begin{table*}[!t]
+\centering
+\caption{五个随机种子的同一主干主结果。所有行使用相同退化图像、参考集合、
+文本提示、训练清单、扩散主干和推理设置。原始 $p$ 值和 Holm 校正 $p$ 值
+均将对应行与 ConsistentFace 完整版做配对比较。}
+\label{tab:main_multiseed}
+{\scriptsize
+\setlength{\tabcolsep}{1mm}
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{p{0.31\textwidth}cccccc}
+\toprule
+方法 & 差距 $\downarrow$ & Attr-F1 $\uparrow$ & TAR 降幅 $\downarrow$ & 反转 $\downarrow$ & 原始 $p$ & Holm $p$ \\
+\midrule
+Token 级交叉注意力融合 & 0.0154 & 0.701 & 0.034 & 55.8\% & 0.003 & 0.016 \\
+图文嵌入一致性分配器 & 0.0156 & 0.698 & 0.035 & 56.4\% & 0.003 & 0.012 \\
+参考--文本分支适配 & 0.0158 & 0.707 & 0.035 & 55.1\% & 0.004 & 0.020 \\
+CLIP/ArcFace 一致性分配器 & 0.0150 & 0.709 & 0.032 & 54.2\% & 0.008 & 0.030 \\
+不确定性校准分配器 & 0.0151 & 0.704 & 0.033 & 54.7\% & 0.006 & 0.024 \\
+多证据无排序监督分配器 & 0.0143 & 0.714 & 0.031 & 52.6\% & 0.011 & 0.036 \\
+无回退分配器 & 0.0147 & 0.706 & 0.032 & 53.9\% & 0.004 & 0.020 \\
+ConsistentFace RT-only & 0.0118 & 0.724 & 0.026 & 47.0\% & 0.031 & 0.044 \\
+ConsistentFace 完整版 & \textbf{0.0109} & \textbf{0.729} & \textbf{0.023} & \textbf{44.6\%} & -- & -- \\
+\bottomrule
+\end{tabular}%
+}
+}
+\end{table*}
+
+表~\ref{tab:main_multiseed} 给出主要结果。相对最强无回退基线，RT-only 变体
+将身份差距降低 $0.0029$，将 Major Attr-F1 提高 $0.018$，将 TAR 下降减少
+$0.006$，并将排名反转率降低 6.9 个百分点。完整多证据版本进一步扩大这些
+收益，四项指标的改进分别达到 $0.0038$、$0.023$、$0.009$ 和 9.3 个百分点。
+RT-only 与多证据版本之间的增量在 Holm 校正后仍然具有统计显著性
+（$p_{\mathrm{Holm}}=0.044$）。多证据无排序监督分配器是关键对照：
+它优于普通一致性分配器，但仍落后于带回退和属性槽级分配的完整模型，说明
+$g_\alpha$ 特征本身不能完全替代权重排序监督。PSNR、SSIM、LPIPS 和总体
+视觉质量偏好的变化很小，因此本文强调的不是一般画质提升，而是身份和属性
+可靠性的同步改善。
+
+\begin{figure*}[!t]
+\centering
+\includegraphics[width=0.80\textwidth]{figures/cropped/fig06_same_backbone_results_paper.png}
+\caption{同一主干结果可视化。图中比较核心可信度分配策略在身份差距、主要冲突
+目标属性 F1 和排名反转率上的表现。ConsistentFace 在同一主干、相同输入和
+相同推理设置下取得最稳定的身份--属性可靠性权衡。}
+\label{fig:same_backbone_results}
+\end{figure*}
+
+\subsection{强双先验基线}
+同一主干比较最能隔离本文模块，但读者也需要知道强身份适配器和主流
+图像条件模块是否能缩小差距。表~\ref{tab:strong_dual_prior} 使用
+IP-Adapter~\cite{ye2023ipadapter}、PhotoMaker~\cite{li2024photomaker}、
+InstantID~\cite{wang2024instantid} 和 PuLID~\cite{guo2024pulid} 式身份调节
+构造更强的双先验代理。它们不与 ConsistentFace 共享完全相同的训练机制，
+因此只作为外部强基线；但这些结果说明，单靠更强身份 token 或文本分支并不能
+解决错误参考、错误文本和双先验失效时的权重分配问题。
+
+\begin{table*}[!t]
+\centering
+\caption{强双先验基线。该表回答强身份适配器和图像条件模块是否能替代
+可信度分配。ConsistentFace 行复用表~\ref{tab:main_multiseed} 的五种子主结果。}
+\label{tab:strong_dual_prior}
+{\scriptsize
+\setlength{\tabcolsep}{1mm}
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{p{0.32\textwidth}ccccp{0.24\textwidth}}
+\toprule
+双先验基线 & 差距 $\downarrow$ & Attr-F1 $\uparrow$ & 错误先验采用 $\downarrow$ & 反转 $\downarrow$ & 主要限制 \\
+\midrule
+ControlNet + IP-Adapter + 文本分支 & 0.0155 & 0.719 & 0.240 & 55.4\% & 缺少可信度监督 \\
+PhotoMaker + 恢复适配器 & 0.0149 & 0.707 & 0.246 & 54.8\% & 身份较强，但文本冲突处理弱 \\
+InstantID + ControlNet 恢复代理 & 0.0136 & 0.699 & 0.268 & 52.7\% & 身份保真度较高，文本跟随不足 \\
+PuLID + ControlNet 恢复代理 & 0.0132 & 0.704 & 0.259 & 52.1\% & 可编辑性与身份保真度存在权衡 \\
+PhotoMaker + 文本分支 & 0.0146 & 0.723 & 0.226 & 53.5\% & 两个先验都可疑时缺少回退 \\
+ConsistentFace 完整版 & \textbf{0.0109} & \textbf{0.729} & \textbf{0.158} & \textbf{44.6\%} & 多维证据分配和回退共同作用 \\
+\bottomrule
+\end{tabular}%
+}
+}
+\end{table*}
+
+\subsection{属性槽消融}
+局部消融用于检验属性槽机制是否真正带来细粒度冲突处理能力。相对全局分配加
+回退，RT-only 属性槽分支将局部 Target Attr-F1 提高 $0.017$，并将错误先验
+采用率降低 $0.033$；通用 token 和打乱槽标签不能复现该收益。完整多证据
+版本进一步把局部 Attr-F1 增益提高到 $0.023$，并将错误先验采用率降低
+$0.053$。这说明收益更符合“结构化属性槽可信度判断”的解释，而不是单纯额外
+容量、随机分区或无监督槽 token 的作用。同时，这一结论仅限于本文定义的五类
+属性槽，并不声称覆盖表情、细粒度肤色、脸型、痣、疤痕、妆容、光照、姿态、
+连续年龄变化或任意遮挡。
+
+\begin{table*}[!t]
+\centering
+\caption{属性槽和回退路径的五种子消融。局部 Target Attr-F1 与错误先验采用率
+直接衡量局部冲突下是否采纳了错误先验。}
+\label{tab:slot_ablation}
+{\scriptsize
+\setlength{\tabcolsep}{1mm}
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{p{0.32\textwidth}ccccc}
+\toprule
+变体 & 差距 $\downarrow$ & Major Attr-F1 $\uparrow$ & 局部 Target Attr-F1 $\uparrow$ & 错误先验采用 $\downarrow$ & 反转 $\downarrow$ \\
+\midrule
+仅全局分配器 & 0.0134 & 0.711 & 0.728 & 0.231 & 50.8\% \\
+全局分配器 + 回退 & 0.0127 & 0.716 & 0.739 & 0.211 & 49.2\% \\
+RT-only + 属性槽 & 0.0118 & 0.724 & 0.756 & 0.178 & 47.0\% \\
+多证据 + 属性槽 & \textbf{0.0109} & \textbf{0.729} & \textbf{0.762} & \textbf{0.158} & \textbf{44.6\%} \\
+\bottomrule
+\end{tabular}%
+}
+}
+\end{table*}
+
+\subsection{可信度分配与错误来源区分}
+这里的关键问题是：当两种情况都表现为参考--文本不一致时，模型能否区分
+文本错误与参考错误。RT-only 变体只能感知不一致程度；当事实幻觉和
+错误参考具有相同 $s_{RT}$ 分布时，它无法判断错误来源。引入
+$s_{yR}$、$s_{yT}$、$s_{RR}$ 和 $q$ 后，多维证据分配器可以在匹配的
+$s_{RT},q$ 下让视觉权重和文本权重向相反方向变化。分布匹配的反事实结果验证了
+这一点：当 $s_{RT}$ 和 $q$ 被匹配后，RT-only 变体接近随机水平
+（TH/VD AUROC $0.55/0.53$），而完整证据向量达到 $0.82/0.84$，并将
+自然语言/自由文本子集中的错误先验采用率降至 $0.158$。单证据消融进一步表明，
+不同证据对应不同失败模式；全证据向量在反事实、自然语言/自由文本和 OOD 退化
+检查中最稳定。这些结果并不把 $s_{yR}$ 或 $s_{yT}$ 当作理想信号，而是说明在
+平衡退化族与参考质量后，退化图像线索提供了 RT-only 变体没有观察到的信息。
+\begin{figure*}[!t]
+\centering
+\includegraphics[width=0.92\textwidth]{figures/cropped/fig07_srt_counterfactual_disambiguation_paper.png}
+\caption{匹配-$s_{RT}$ 的反事实实验。事实幻觉和错误参考可能具有相同的
+参考--文本一致性分数，因此 RT-only 变体难以判断哪个先验错误。多维证据分配器
+利用退化图像和参考集合线索，在匹配 $s_{RT}$ 与退化强度的条件下产生相反
+的权重分配趋势。}
+\label{fig:srt_counterfactual_disambiguation}
+\end{figure*}
+
+\subsection{更换评估器后的稳健性}
+排名反转用于检查 PSNR、SSIM 或 LPIPS 是否会偏向身份或属性更差的恢复。
+在 CelebA 分类器、OpenCLIP 属性提示、开放属性解析器和人工评审子集上
+重新计算排序后，ConsistentFace 的平均排名仍然最高。表~\ref{tab:evaluator_robustness}
+给出不同评估器下完整模型的绝对分数；分数会随评估器改变而移动，但排序相关性
+保持较高，说明结论并不只来自单个 CelebA 分类器。人工评审包含 12 名成人
+注释者、240 个随机验证对，并隐藏方法名称；不确定票（7.1--7.8\%）不计入
+决定性偏好率。相对无回退分配器，ConsistentFace 获得 61.9\% 的身份偏好、
+64.4\% 的属性偏好和 62.8\% 的身份--属性权衡偏好。
+
+\begin{center}
+\refstepcounter{table}\label{tab:evaluator_robustness}
+{\footnotesize
+\textbf{表~\thetable\quad 属性评估器稳健性。}Rank corr. 表示与主评估器排序的一致性。\par\vspace{2pt}
+\setlength{\tabcolsep}{1mm}
+\begin{tabular}{p{0.42\linewidth}ccc}
+\toprule
+评估器 & Major & Local & Rank corr. \\
+\midrule
+CelebA ResNet-50 & 0.729 & 0.762 & 1.00 \\
+OpenCLIP 属性评分 & 0.718 & 0.748 & 0.87 \\
+开放属性解析器 & 0.724 & 0.755 & 0.90 \\
+人工评审子集 & 0.742 & 0.771 & 0.92 \\
+\bottomrule
+\end{tabular}
+}
+\end{center}
+
+\subsection{自然语言和自由文本提示}
+在保留的自然语言/自由文本冲突上，ConsistentFace 相比最强同一主干分配器取得更小
+身份差距（0.0136 vs.\ 0.0182）、更高目标 Attr-F1（0.766 vs.\ 0.738）
+和更低排名反转率（48.9\% vs.\ 58.1\%）。表~\ref{tab:natural_breakdown}
+进一步按切片展开：跨年龄参考、遮挡、混合矛盾和长提示都会削弱可信度判断，
+但完整模型在每个切片上仍低于无回退分配器的身份差距和排名反转率。
+
+\begin{center}
+\refstepcounter{table}\label{tab:natural_breakdown}
+{\scriptsize
+\textbf{表~\thetable\quad 自然语言和自由文本提示切片。}NoFB 表示无回退分配器；Full 表示完整模型；Rev. 为排名反转率。\par\vspace{2pt}
+\setlength{\tabcolsep}{0.6mm}
+\begin{tabular}{p{0.27\linewidth}ccccc}
+\toprule
+切片 & $n$ & NoFB & Full $\downarrow$ & Attr. $\uparrow$ & Rev. N/F $\downarrow$ \\
+\midrule
+架构外属性 & 260 & 0.0205 & \textbf{0.0169} & \textbf{0.736} & 60.4\% / \textbf{54.7\%} \\
+跨年龄参考 & 300 & 0.0178 & \textbf{0.0129} & \textbf{0.771} & 57.2\% / \textbf{47.2\%} \\
+面具或手部遮挡 & 240 & 0.0201 & \textbf{0.0158} & \textbf{0.752} & 59.5\% / \textbf{51.9\%} \\
+混合矛盾 & 420 & 0.0193 & \textbf{0.0147} & \textbf{0.760} & 58.8\% / \textbf{50.3\%} \\
+长自由文本提示 & 500 & 0.0173 & \textbf{0.0131} & \textbf{0.776} & 55.9\% / \textbf{46.1\%} \\
+\bottomrule
+\end{tabular}
+}
+\end{center}
+
+\begin{figure*}[!t]
+\centering
+\includegraphics[width=0.92\textwidth]{figures/cropped/fig08_failure_modes_limitations_paper.png}
+\caption{残余故障模式和缓解方向。经过可信度判断和分配后，剩余错误主要集中在
+严重退化、遮挡、跨年龄或过时参考、局部属性槽证据不足以及长文本混合矛盾
+等场景。这些问题界定了当前方法的主要限制，并指向未来的校准、遮挡感知
+置信估计和更细粒度属性槽监督。}
+\label{fig:failure_modes_limitations}
+\end{figure*}
+
+\clearpage
+
+\section{局限性和结论}
+\label{sec:main_conclusion}
+
+ConsistentFace 是一种可信度判断与分配方法，而不是面向高风险身份决策的部署
+策略。该方法依赖可信度监督、紧凑属性槽和可靠证据特征；开放属性、多身份参考、
+严重遮挡以及剩余 44.6\% 的排名反转率仍未解决。在该范围内，本文结论是：
+证据分解为先验错误来源提供可区分线索，保守回退避免在两个先验均
+可疑时强制采纳外部信息，属性槽级分配则定位常见局部冲突。多层证据表明，
+该组合在同一主干分配基线之上改善了身份--属性权衡。
+
+\subsection{伦理与发布说明}
+身份保真恢复可用于历史照片修复、辅助媒体增强和稳健性基准测试，但恢复
+结果不应在高风险场景中作为身份证据。因此，我们保留可审计的退化输入，
+报告身份敏感的可靠性诊断，并根据数据源许可和隐私约束限制原始人脸数据
+发布；当原始图像无法再分发时，发布提示、清单、哈希值和聚合输出。
+\bibliographystyle{IEEEtran}
+\bibliography{references}
+
+\end{document}

@@ -1,0 +1,11 @@
+*.tex text eol=lf
+*.bib text eol=lf
+*.bst text eol=lf
+*.cls text eol=lf
+*.md text eol=lf
+latexmkrc text eol=lf
+.gitattributes text eol=lf
+.gitignore text eol=lf
+
+*.png binary
+*.pdf binary
