@@ -1,9 +1,6 @@
 \documentclass[UTF8,a4paper,zihao=-4]{ctexart}
 \usepackage[margin=2.2cm]{geometry}
-\usepackage{array}
-\usepackage{booktabs}
 \usepackage{enumitem}
-\usepackage{xcolor}
 \usepackage{hyperref}
 \usepackage{fancyhdr}
 \usepackage{lastpage}
@@ -17,177 +14,108 @@
 \pagestyle{fancy}
 \setlength{\headheight}{15pt}
 \fancyhf{}
-\lhead{ConsistentFace 论文修改清单}
-\rhead{commit cb47cb7}
+\lhead{ConsistentFace 写法大修清单}
+\rhead{2026-07-07}
 \cfoot{\thepage/\pageref{LastPage}}
 
 \setlist[itemize]{leftmargin=1.8em,itemsep=0.25em,topsep=0.25em}
-\setlist[enumerate]{leftmargin=2.2em,itemsep=0.35em,topsep=0.35em}
-\renewcommand{\arraystretch}{1.25}
+\setlist[enumerate]{leftmargin=2.1em,itemsep=0.45em,topsep=0.35em}
 
-\title{\textbf{ConsistentFace 论文修改清单}}
-\author{基于审稿意见 PDF 与本轮修订生成}
+\title{\textbf{ConsistentFace 写法大修清单}}
+\author{参考 \texttt{2501.05177v2.pdf} 的写法结构生成}
 \date{2026 年 7 月 7 日}
 
 \begin{document}
 \maketitle
 
-\section*{一、修订范围}
+\section*{一、参考写法提炼}
 
+本轮修订只参考 \texttt{2501.05177v2.pdf} 的论文写法，不借用其技术内容。参考论文的主要写法特征如下：
 \begin{itemize}
-  \item 对照版本：\texttt{3f60883} 到 \texttt{cb47cb7}。
-  \item 最新提交：\texttt{cb47cb7 Address review comments and move audit notes}。
-  \item 修改文件：\texttt{consistentface\_tip\_zh.tex}。
-  \item 新增文件：\texttt{experiment\_audit\_notes.md}。
-  \item 变更规模：2 个文件，48 行新增，56 行删除。
+  \item 摘要使用单段紧凑写法，直接进入任务难点，随后说明现有方法限制，再给出方法、关键模块和实验结论。
+  \item 绪论采用线性推进：任务背景、现有路线不足、本文方法一句话、三项挑战、对应解决策略。
+  \item 方法开头先说明整体管线和各模块职责，再进入公式细节。
+  \item 实验部分先说明每组实验回答什么问题，再解释设置、结果和结论。
+  \item 结论部分明确适用边界，不把恢复结果表述为身份真实性证明。
 \end{itemize}
 
-\section*{二、具体修改清单}
+\section*{二、正文具体修改}
 
 \begin{enumerate}
-  \item \textbf{标题重写}
+  \item \textbf{摘要重写}
   \begin{itemize}
-    \item 位置：\texttt{consistentface\_tip\_zh.tex:33}。
-    \item 修改前：标题强调“一种用于双先验人脸恢复的冲突感知适配器”。
-    \item 修改后：改为“面向身份保持人脸恢复的参考--文本双先验冲突感知适配器”。
-    \item 目的：回应意见中“主题应更明确地指向身份保持、参考图像和文本先验”的要求。
+    \item 位置：\texttt{consistentface\_tip\_zh.tex} 摘要部分。
+    \item 修改：改为单段紧凑摘要，按“任务难点-现有问题-ConsistentFace 方法-训练/推理边界-实验结论”的顺序组织。
+    \item 结果：摘要更接近参考论文的直入式写法，减少背景铺垫、分段停顿和重复解释。
   \end{itemize}
 
-  \item \textbf{摘要整体压缩和重写}
+  \item \textbf{绪论大修}
   \begin{itemize}
-    \item 位置：\texttt{consistentface\_tip\_zh.tex:45--50}。
-    \item 具体修改：把摘要改成三段式结构：问题定义、方法核心、验证结论。
-    \item 删除内容：删去过长背景铺垫和过细的失败场景展开。
-    \item 新增重点：明确参考图像约束身份、文本提示控制属性，并指出二者失配会导致身份漂移和错误属性采纳。
-    \item 目的：回应“摘要应更紧凑、更有力”的意见。
+    \item 位置：\texttt{consistentface\_tip\_zh.tex} 绪论。
+    \item 修改：重写前五个核心段落，按“人脸恢复病态性-外部上下文-双先验可信度问题-本文方法-三项挑战与对应策略”组织。
+    \item 结果：读者能更快理解本文不是单纯增加参考或文本条件，而是解决先验可靠性判断。
   \end{itemize}
 
-  \item \textbf{贡献列表由四点收敛为三点}
+  \item \textbf{贡献列表收紧}
   \begin{itemize}
-    \item 位置：\texttt{consistentface\_tip\_zh.tex:71--78}。
-    \item 具体修改：将贡献整理为“身份保持双先验冲突建模”“多证据与属性槽路由适配器”“冲突监督和评测协议”三点。
-    \item 删除内容：删去贡献项中过多动机性解释，避免贡献列表像背景段落。
-    \item 目的：回应“贡献应直接，不要在贡献列表中写动机长段”的意见。
+    \item 位置：绪论末尾贡献列表。
+    \item 修改：保留三点贡献，但统一句式为问题建模、适配器设计、监督与评测协议。
+    \item 结果：贡献项更短、更像审稿人可快速扫描的条目。
   \end{itemize}
 
-  \item \textbf{相关工作强化最接近工作的差异}
+  \item \textbf{问题表述重构}
   \begin{itemize}
-    \item 位置：\texttt{consistentface\_tip\_zh.tex:92}。
-    \item 具体修改：集中补充 CoFaDiff、IConFace、MCS、A$^2$BFR、FaceMe 与本文的差异。
-    \item 新增观点：现有方法通常把外部先验作为应强化的条件，而本文把外部先验视为需要验证的证据。
-    \item 目的：回应“主 baseline/closest work 要清楚引用，并说明差异”的意见。
+    \item 位置：\texttt{问题表述}。
+    \item 修改：先定义输入输出，再说明三类不确定性来源；随后解释三类路由决策和训练/推理标签边界。
+    \item 结果：符号、任务和标签使用关系更清楚，避免读者误以为推理阶段需要冲突标签。
   \end{itemize}
 
-  \item \textbf{语言先验不确定性补充依据}
+  \item \textbf{方法开场改写}
   \begin{itemize}
-    \item 位置：\texttt{consistentface\_tip\_zh.tex:97}。
-    \item 具体修改：说明文本提示可能来自自动描述、过时人工描述或视觉语言模型生成描述，并可能携带错误属性。
-    \item 新增引用方向：结合文本引导恢复和指令编辑文献说明提示错误可能造成身份或属性偏移。
-    \item 目的：回应“语言先验不确定性需要文献和任务依据”的意见。
+    \item 位置：\texttt{方法} 开头。
+    \item 修改：先说明 SDXL/ControlNet、参考 token、文本 token 的来源，再用三步概括 ConsistentFace 的新增模块。
+    \item 结果：方法部分更像参考论文的“先给整体管线，再进入模块细节”的写法。
   \end{itemize}
 
-  \item \textbf{多模态可靠性与身份适配器段落重写}
+  \item \textbf{实验设置改写}
   \begin{itemize}
-    \item 位置：\texttt{consistentface\_tip\_zh.tex:100--102}。
-    \item 具体修改：补充 CLIP、ControlNet、IP-Adapter、PAIR-Diffusion 等作为多模态融合和条件扩散背景。
-    \item 明确差异：IP-Adapter、PhotoMaker、InstantID、PuLID 主要回答如何更强注入身份；本文回答冲突时何时信任参考、何时信任文本、何时回退。
-    \item 目的：回应“更强先验”和“可信度分配”区别不够清楚的问题。
+    \item 位置：\texttt{评测设置} 和 \texttt{数据构建和划分}。
+    \item 修改：实验开头改为两个核心问题；数据构建段落改为“固定变量-冲突来源-反事实划分-标签隔离”的顺序。
+    \item 结果：实验目的和公平性更明确。
   \end{itemize}
 
-  \item \textbf{跨评估器身份指标说明补强}
+  \item \textbf{结果分析改为观察式写法}
   \begin{itemize}
-    \item 位置：\texttt{consistentface\_tip\_zh.tex:102}。
-    \item 具体修改：解释参考 token 使用 ArcFace 特征，若只用 ArcFace 评估会造成输入特征与评价指标耦合。
-    \item 新增说明：因此同时报告 AdaFace、MagFace、CurricularFace，并结合属性评估器和人工盲测。
-    \item 目的：回应“为什么需要 cross-evaluator identity metrics”的意见。
+    \item 位置：五种子同一主干结果、强双先验基线、属性槽消融、错误来源区分、更换评估器、自然语言提示等小节。
+    \item 修改：每个小节先说明它回答的问题，再给数值结果和解释；主结果表后改为“三点观察”。
+    \item 结果：实验叙述更有层次，减少流水账式报告。
   \end{itemize}
 
-  \item \textbf{问题表述段落补顺}
+  \item \textbf{局限性和结论重写}
   \begin{itemize}
-    \item 位置：\texttt{consistentface\_tip\_zh.tex:110--112}。
-    \item 具体修改：新增三类决策解释：全局参考/文本偏好、外部先验整体置信度、属性槽局部偏好和回退。
-    \item 新增变量说明：$\alpha$ 表示全局参考/文本偏好，$c$ 表示外部先验整体置信度，$\alpha_a,c_a$ 表示属性槽局部偏好和局部回退置信度。
-    \item 目的：回应“为什么设计三个动态权重应更顺畅说明”的意见。
-  \end{itemize}
-
-  \item \textbf{避免含混术语}
-  \begin{itemize}
-    \item 位置：\texttt{consistentface\_tip\_zh.tex:112}。
-    \item 具体修改：删除“坍缩为单一分数”等容易引发歧义的说法，改为分条说明三类挑战。
-    \item 目的：回应“坍缩”等词语表达不够准确的问题。
-  \end{itemize}
-
-  \item \textbf{方法开头补充模块来源}
-  \begin{itemize}
-    \item 位置：\texttt{consistentface\_tip\_zh.tex:123}。
-    \item 具体修改：说明 ConsistentFace 基于 SDXL/ControlNet 恢复主干，退化图像由 ControlNet 提供结构约束，参考图像沿用身份编码器和图像提示适配器 token 注入思想，文本由 SDXL 文本编码器提供语义条件。
-    \item 明确新增贡献：新增部分不是重新设计去噪主干，而是在条件进入扩散去噪前加入可信度分配适配器。
-    \item 目的：回应“方法模块来源不够清楚”的意见。
-  \end{itemize}
-
-  \item \textbf{删除正文中的审计占位表}
-  \begin{itemize}
-    \item 位置：原 \texttt{consistentface\_tip\_zh.tex} 中数据审计表，已删除。
-    \item 删除内容：移除包含“待清单导出”“待种子日志补齐”等占位语的数据构成表。
-    \item 目的：回应“不要在文中写出 TBD/待清单导出”的要求。
-  \end{itemize}
-
-  \item \textbf{主结果表去除 \texttt{TBD}}
-  \begin{itemize}
-    \item 位置：\texttt{consistentface\_tip\_zh.tex:595--615}。
-    \item 具体修改：表 II 的数值改为当前已有均值、$\Delta$ 列、原始 $p$ 值和 Holm 校正 $p$ 值，不再写 \texttt{$\backslash$pm TBD}。
-    \item 处理原则：没有真实逐种子标准差时不虚构数值；待补统计移至单独审计说明。
-    \item 目的：保持论文正文干净，同时避免伪造未归档统计。
-  \end{itemize}
-
-  \item \textbf{删除正文中的缺失日志免责声明}
-  \begin{itemize}
-    \item 位置：\texttt{consistentface\_tip\_zh.tex:628} 附近。
-    \item 具体修改：删除“当前归档缺少逐种子日志，标准差必须补齐”等正文叙述。
-    \item 目的：避免正文出现内部审计语气，把投稿前核对事项单独管理。
-  \end{itemize}
-
-  \item \textbf{小幅润色结果分析标题句}
-  \begin{itemize}
-    \item 位置：\texttt{consistentface\_tip\_zh.tex:709}。
-    \item 修改前：“这里的关键问题是……”。
-    \item 修改后：“本节关注的关键问题是……”。
-    \item 目的：去除口语化和批注式表达，使论文语气更正式。
-  \end{itemize}
-
-  \item \textbf{新增独立审计说明文件}
-  \begin{itemize}
-    \item 位置：\texttt{experiment\_audit\_notes.md:1--17}。
-    \item 具体内容：单独列出投稿前需要补齐的逐种子统计、评测套件规模、匹配-$s_{RT}$ 反事实套件清单、自然语言/自由文本切片、人工评审材料。
-    \item 目的：满足“不要在文中写出 TBD/待清单导出，可以单独生成一个文件阐述”的要求。
+    \item 位置：\texttt{局限性和结论}。
+    \item 修改：明确 ConsistentFace 是先验使用可靠性方法，不是身份认证系统；保留 44.6\% 排名反转这一负面结果，并解释失败来源。
+    \item 结果：结论更审慎，适用边界和伦理约束更明确。
   \end{itemize}
 \end{enumerate}
 
-\section*{三、正文已清除的占位和内部批注}
+\section*{三、未改变的内容边界}
 
 \begin{itemize}
-  \item 正文 \texttt{consistentface\_tip\_zh.tex} 中未检出：\texttt{TBD}。
-  \item 正文 \texttt{consistentface\_tip\_zh.tex} 中未检出：“待清单导出”。
-  \item 正文 \texttt{consistentface\_tip\_zh.tex} 中未检出：“待种子日志”“逐种子日志”“当前归档”“审计状态”“标准差需”等内部审计表述。
-  \item 审计性内容只保留在 \texttt{experiment\_audit\_notes.md} 中，不进入论文正文。
+  \item 未改变核心方法主张、公式定义和实验数值。
+  \item 未借用参考论文的技术内容、数据构建方案或实验结论。
+  \item 未向正文加入实验占位符、内部清单导出提示或审计说明。
+  \item 参考论文仅用于学习写作节奏、段落组织和实验叙述方式。
 \end{itemize}
 
-\section*{四、编译和版式检查}
+\section*{四、验证与清理}
 
 \begin{itemize}
-  \item 论文已使用 \texttt{latexmk -pdfxe consistentface\_tip\_zh.tex} 编译成功。
-  \item 未发现 LaTeX error、未解析引用、citation warning 或 overfull。
-  \item 仅剩字体替换 warning，不影响正文内容完整性。
-  \item 最新论文 PDF 已输出到：\texttt{output/pdf/consistentface\_tip\_zh.pdf}。
-  \item 已渲染缩略图检查首页、表格页和第 14 页结论/参考文献衔接，未见明显遮挡或大块空白。
-\end{itemize}
-
-\section*{五、仍需后续补齐但未写入正文的事项}
-
-\begin{itemize}
-  \item 若准备正式投稿，仍需用固定评测清单导出每个随机种子的逐项指标和标准差。
-  \item 若补齐后的标准差或配对检验改变显著性结论，应同步更新正文表格、结果分析和结论措辞。
-  \item 数据构成表中的身份数、图像数、参考数量分布、冲突类别样本数等应来自真实冻结清单，不应人工补写或虚构。
+  \item 主论文已使用 \texttt{latexmk -pdfxe consistentface\_tip\_zh.tex} 编译成功。
+  \item 最新主论文 PDF 为 15 页，已渲染全页缩略图检查。
+  \item 日志未检出 LaTeX error、citation warning、未解析引用或 overfull。
+  \item 仅剩字体替换和 underfull 提示，不影响内容完整性。
+  \item 本轮结束前将删除 \texttt{.aux}、\texttt{.bbl}、\texttt{.blg}、\texttt{.fdb\_latexmk}、\texttt{.fls}、\texttt{.log}、\texttt{.xdv}、\texttt{.synctex.gz} 以及临时渲染图片等中间文件。
 \end{itemize}
 
 \end{document}
