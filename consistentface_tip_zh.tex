@@ -82,24 +82,26 @@
 
 \section{相关工作}
 \label{sec:main_related}
-本节围绕与本文相关的三个研究维度展开论述：基于生成先验与个性化建模的人脸恢复、语言引导的恢复与编辑，以及多模态条件融合中的可靠性估计。尽管现有研究表明，生成先验、身份参考图像以及文本提示均能作为重要的额外线索，指导模型更准确地补全缺失的面部信息，但本文进一步关注如下问题：当多源先验同时存在且发生模态间冲突时，模型应如何动态判断其相对可信度，并执行细粒度的局部化权重分配。
+本节从三个方向讨论与本文相关的工作：盲人脸恢复中的生成先验与个性化约束、语言引导的恢复与编辑，以及多模态条件融合中的可信度分配。现有研究已经证明，生成先验、身份参考图像和文本提示都能为欠定恢复问题提供有效上下文。与这些工作不同，本文关注的不是继续增加条件强度，而是当参考与文本同时存在且可能冲突时，如何判断不同先验在全局身份和局部属性层面的相对可信度。
 
 \subsection{生成先验与个性化人脸恢复}
-盲人脸恢复通常依赖强生成先验，以补全高度退化观测中缺失的高频细节。早期代表性工作如 GFPGAN \cite{wang2021gfpgan} 引入生成式人脸先验，以提升真实退化场景下的感知质量；RestoreFormer、VQFR 与 CodeFormer \cite{wang2022restoreformer,gu2022vqfr,zhou2022codeformer} 则通过键值记忆、向量量化字典或离散码本查询机制，在人脸结构严重受损时重建局部纹理。近年来，随着扩散模型（Diffusion Models）的发展，DR2、DifFace、DiffBIR、StableSR 等方法 \cite{wang2023dr2,yue2022difface,suin2024diffuse,gao2024diffmac,zhu2024visualstyle,min2024pdgrad,lu2024threepriors,chen2024bfrffusion,lin2024diffbir,wang2024stablesr,liang2024authface,zhu2022sgpn} 进一步将预训练扩散先验、区域自适应扩散、幻觉校正、视觉风格提示以及 3D 或梯度引导等机制引入恢复流程。此外，RestoreFormer++、DiffBFR、OSDFace 等工作 \cite{wang2023restoreformerpp,qiu2023diffbfr,wang2025osdface,do2025dynfacerestore,miao2025flipnet} 也从不同角度提升了复杂退化条件下的人脸恢复性能。
+盲人脸恢复通常依赖强生成先验来补全退化观测中缺失的高频细节。GFPGAN \cite{wang2021gfpgan} 将预训练人脸生成器引入真实退化恢复；RestoreFormer、VQFR 和 CodeFormer \cite{wang2022restoreformer,gu2022vqfr,zhou2022codeformer} 通过键值记忆、向量量化字典或离散码本查询重建局部结构；DR2、DifFace、DiffBIR 和 StableSR 等扩散恢复方法 \cite{wang2023dr2,yue2022difface,lin2024diffbir,wang2024stablesr} 进一步利用预训练扩散先验提升自然度和细节真实感。后续工作还从区域扩散、幻觉校正、视觉风格提示、3D 或梯度引导等角度扩展了盲恢复能力 \cite{suin2024diffuse,gao2024diffmac,zhu2024visualstyle,min2024pdgrad,lu2024threepriors,chen2024bfrffusion,liang2024authface,zhu2022sgpn,wang2023restoreformerpp,qiu2023diffbfr,wang2025osdface,do2025dynfacerestore,miao2025flipnet}。这些方法主要回答如何生成更清晰、更自然的人脸，但在严重退化下，强生成先验仍可能生成视觉合理却身份偏移的结果。
 
-尽管上述方法在生成逼真细节方面取得了显著进展，但过强的生成先验也可能带来身份偏移（Identity Shift）风险。正如 PULSE \cite{menon2020pulse} 等研究所揭示的，恢复任务中存在固有的感知-失真权衡（Perception-Distortion Trade-off）：更高的视觉真实感往往可能以牺牲身份保真度为代价。为进一步约束恢复过程的解空间，参考引导恢复与个性化生成方法被相继提出。这类方法通过引入同一身份的参考图像、专用身份编码器、复合参考上下文或潜在扩散适配器 \cite{li2018gfrnet,li2020asffnet,li2022dmdnet,zhou2025referenceguided,varanka2024pfstorer,hsiao2024refldm,liu2025faceme} 来强化身份约束。例如，MyStyle \cite{nitzan2022mystyle} 表明，少量参考肖像即可为特定主体构建有效的生成约束；Textual Inversion、DreamBooth 等文本到图像个性化方法 \cite{gal2023textualinversion,ruiz2023dreambooth,kumari2023customdiffusion} 则将用户概念绑定至文本接口；InstantID 与 PuLID \cite{wang2024instantid,guo2024pulid} 进一步验证了面部身份嵌入与文本提示在扩散模型中的协同潜力。
+为增强身份一致性，参考引导恢复和个性化建模方法引入同一身份的额外图像。GFRNet、ASFFNet 和 DMDNet \cite{li2018gfrnet,li2020asffnet,li2022dmdnet} 依赖参考与退化输入之间的特征对齐；当输入退化严重、姿态差异较大或参考质量有限时，对齐误差会直接影响恢复质量。MyStyle \cite{nitzan2022mystyle}、Textual Inversion、DreamBooth 和 Custom Diffusion \cite{gal2023textualinversion,ruiz2023dreambooth,kumari2023customdiffusion} 将主体身份绑定到生成模型或文本接口；IP-Adapter、PhotoMaker、InstantID 和 PuLID \cite{ye2023ipadapter,li2024photomaker,wang2024instantid,guo2024pulid} 则通过图像提示或身份嵌入增强个性化扩散生成。FaceMe \cite{liu2025faceme} 与本文在参考身份约束上最接近，它使用身份编码器实现无需微调的个性化盲恢复，并支持单张或少量参考图像。
 
-上述方法说明，生成先验、身份参考和个性化适配器能够缩小人脸恢复的解空间，但也留下一个共同不足：外部先验通常被当作应尽量强化的条件，而较少被当作需要验证的证据。近期工作与本文最接近，但关注点仍有区别。CoFaDiff \cite{ming2026cofadiff} 主要讨论个性化生成中的身份保真度与文本一致性协调，核心对象是生成编辑而非退化观测约束下的恢复；IConFace \cite{niu2026iconface} 研究身份--结构不对称调节和无参考回退，但没有把参考、文本和退化观测之间的错误来源显式解耦；MCS \cite{li2025mcs} 与 A$^2$BFR \cite{zhu2026a2bfr} 强化了文本约束或属性感知恢复，却默认文本先验在目标属性上大体可信；FaceMe \cite{liu2025faceme} 强化参考身份约束，但不处理文本与参考同时可用且相互矛盾时的局部权重分配。本文因此把重点放在参考--文本双先验冲突下的可信度研判：模型不仅要利用先验，还要判断哪些先验值得采用。
+上述工作表明，生成先验和身份参考能够显著缩小恢复解空间，但它们通常默认外部身份条件可靠。本文与 FaceMe 的区别在于：FaceMe 主要处理低质量输入与参考图像之间的依赖平衡，而 ConsistentFace 同时接收参考图像和文本提示，并显式判断二者在全局身份和局部属性层面是否冲突。换言之，本文不是简单加强参考身份注入，而是在参考、文本和退化观测之间建立可监督的可信度分配机制。
 
 \subsection{语言引导恢复与编辑}
-自然语言为人脸恢复提供了具备可解释性与灵活性的控制接口，可描述年龄、发型、配饰、遮挡状态及局部面部特征等可变属性。相关研究探索了文本引导恢复、视觉风格提示学习以及通用指令驱动的图像恢复 \cite{xie2023tfrgan,an2026tbfr,zhu2024visualstyle,tao2025mgfr,conde2024instructir,qi2024spire}。这些研究表明，语言条件的引入能够提升恢复结果的可控性，并允许用户以较低交互成本指定局部属性的重建目标。
+自然语言为恢复任务提供了灵活的语义控制接口。与固定类别标签相比，文本提示可以描述发型、眼镜、胡须、遮挡、年龄和皮肤状态等细粒度属性，也可以表达更开放的用户意图。已有研究探索了文本引导人脸恢复、视觉风格提示学习和指令驱动图像恢复 \cite{xie2023tfrgan,an2026tbfr,zhu2024visualstyle,tao2025mgfr,conde2024instructir,qi2024spire}。MCS \cite{li2025mcs} 和 A$^2$BFR \cite{zhu2026a2bfr} 进一步表明，文本约束或属性感知机制能够改善局部语义可控性，使恢复结果更符合目标属性描述。
 
-然而，语言先验固有的开放性也引入了不确定性。文本提示可能源自自动图像描述、过时人工描述或视觉语言模型生成的描述；在图像恢复和指令编辑任务中，提示若包含错误属性，模型可能仍会生成视觉合理但身份或属性偏移的结果 \cite{xie2023tfrgan,conde2024instructir,qi2024spire,tao2025mgfr}。因此，ConsistentFace 的设计目标并非削弱文本引导，而是在多模态先验并存的复杂场景下显式评估语言条件的可靠性。该设计支持模型在宏观身份层面与微观属性槽层面分别进行权重分配，即动态采纳、校准或抑制文本信息，而非全局性提高或降低文本条件权重。
+语言条件的优势也带来新的风险。文本提示可能来自自动描述模型、视觉语言模型、旧照片标注或用户记忆，其内容不一定与目标身份或当前观测一致。当提示包含错误眼镜、发型、年龄或遮挡信息时，模型若无条件采纳文本，可能生成看似合理但属性错误甚至身份偏移的结果。因此，ConsistentFace 并不把文本视为始终正确的控制命令，而是把它作为需要验证的证据。本文在五类属性槽上独立估计文本与参考的相对可靠性，使模型可以采纳可靠文本、抑制错误描述，并在局部冲突时避免全局削弱身份约束。
 
 \subsection{多模态可靠性与可信度分配}
-在多模态条件融合领域，融合门控（Gating）、不确定性加权以及基于 CLIP 的一致性评分是处理模态协同的常用手段，相关思想也广泛出现在图文生成、图像编辑和条件扩散模型中 \cite{radford2021clip,zhang2023controlnet,ye2023ipadapter,goel2024pairdiffusion}。这类方法提供了融合多个条件的通用工具，但通常不区分“文本错误”“参考错误”和“两个先验同时不可靠”等错误来源。IP-Adapter \cite{ye2023ipadapter}、PhotoMaker \cite{li2024photomaker}、InstantID \cite{wang2024instantid} 和 PuLID \cite{guo2024pulid} 等身份适配器进一步增强了图像条件注入能力，但它们主要回答“如何更强地注入身份”，而不是“当身份参考与文本提示冲突时应如何判断谁更可信”。
+多模态条件融合通常采用门控、不确定性加权或基于 CLIP 的一致性评分来协调不同输入，相关思想广泛用于图文生成、条件扩散和图像编辑 \cite{radford2021clip,zhang2023controlnet,ye2023ipadapter,goel2024pairdiffusion}。这类机制能够学习不同条件的融合强度，但其分配变量往往缺少明确的错误来源语义：参考错误、文本幻觉、双先验失效和局部属性冲突可能被压缩成相似的门控分数。对于人脸恢复而言，这种区分很关键，因为错误参考应被抑制，错误文本应被校正，而二者同时可疑时应触发更保守的恢复路径。
 
-基于上述观察，ConsistentFace 的核心主张并非构造更复杂的通用门控网络，也不是简单叠加强身份适配器，而是为分配变量赋予明确的可信度语义和监督约束：多维证据解耦用于定位冲突来源，保守回退为双先验同时失效提供低风险路径，细粒度属性槽则将局部属性决策从全局身份决策中解耦出来。为验证这一点，本文将 ConsistentFace 与通用额外 token 条件、属性槽打乱、纯参考--文本一致性分配器、无排序监督分配器以及无回退分配器进行消融对比。由于参考 token 的构建使用 ArcFace 特征 \cite{deng2019arcface}，若只用 ArcFace 评估身份，模型输入特征与评价指标会发生耦合；因此本文同时报告 AdaFace、MagFace 与 CurricularFace \cite{kim2022adaface,meng2021magface,huang2020curricularface}，并结合客观属性评估器与人工盲测，将身份与属性可靠性纳入评价体系。
+近期工作开始关注身份、结构和文本之间的冲突协调。CoFaDiff \cite{ming2026cofadiff} 研究个性化生成中的身份保真度与文本一致性平衡，但主要面向生成编辑，而不是退化观测约束下的恢复。IConFace \cite{niu2026iconface} 讨论身份--结构不对称调节和无参考回退，却没有显式解耦参考、文本与退化观测之间的错误来源。IP-Adapter、PhotoMaker、InstantID 和 PuLID 等身份适配器 \cite{ye2023ipadapter,li2024photomaker,wang2024instantid,guo2024pulid} 则进一步增强身份条件注入，但重点仍是如何更稳定地使用图像先验，而不是在参考和文本发生冲突时判断哪一方更可信。
+
+基于上述观察，ConsistentFace 的核心主张并非构造更复杂的通用融合门，也不是简单叠加强身份适配器，而是为参考/文本分配变量赋予可解释的可信度语义和可验证的监督约束。具体而言，多维证据用于定位冲突来源，属性槽路由将局部属性决策从全局身份决策中解耦，保守回退为双先验同时失效提供低风险路径。为避免身份特征输入与评价指标耦合，本文除 ArcFace \cite{deng2019arcface} 外，还报告 AdaFace、MagFace 和 CurricularFace \cite{kim2022adaface,meng2021magface,huang2020curricularface}，并结合属性评估器与人工盲测检验可信度判断是否真正带来收益。
 
 \section{问题表述}
 

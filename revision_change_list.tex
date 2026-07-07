@@ -15,7 +15,7 @@
 \setlength{\headheight}{15pt}
 \fancyhf{}
 \lhead{ConsistentFace 写法大修清单}
-\rhead{2026-07-07}
+\rhead{2026-07-08}
 \cfoot{\thepage/\pageref{LastPage}}
 
 \setlist[itemize]{leftmargin=1.8em,itemsep=0.25em,topsep=0.25em}
@@ -23,7 +23,7 @@
 
 \title{\textbf{ConsistentFace 写法大修清单}}
 \author{参考 \texttt{2501.05177v2.pdf} 的写法结构生成}
-\date{2026 年 7 月 7 日}
+\date{2026 年 7 月 8 日}
 
 \begin{document}
 \maketitle
@@ -61,6 +61,13 @@
     \item 位置：绪论末尾贡献列表。
     \item 修改：改为四点贡献，分别对应冲突感知双先验问题定义、多维可信度证据、属性槽级路由与回退机制、冲突监督和评测协议。
     \item 结果：贡献项与修改计划保持一致，也更像审稿人可快速扫描的条目。
+  \end{itemize}
+
+  \item \textbf{相关工作继续润色}
+  \begin{itemize}
+    \item 位置：\texttt{相关工作} 三个小节。
+    \item 修改：按“研究路线-已有局限-本文差异”的结构重写，强化与 FaceMe、CoFaDiff、IConFace、MCS、A$^2$BFR 以及 IP-Adapter、PhotoMaker、InstantID、PuLID 的边界。
+    \item 结果：相关工作从文献罗列改为问题导向叙述，更清楚地区分“更强先验注入”和“可信度分配”。
   \end{itemize}
 
   \item \textbf{问题表述重构}
