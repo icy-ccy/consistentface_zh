@@ -122,7 +122,9 @@
 \section{方法}
 \label{sec:main_method}
 
-ConsistentFace 建立在 SDXL/ControlNet 恢复主干之上。退化图像通过 ControlNet 提供可靠结构约束；参考图像通过身份编码器和图像提示适配器思想转化为身份 token；文本提示通过 SDXL 文本编码器转化为语义 token。本文的新增模块是一个前置可信度适配器，它在条件进入扩散去噪网络之前完成三步处理。第一，提取结构、身份和文本特征。第二，以退化图像为可靠锚点计算跨模态一致性、参考/文本相对观测的一致性、参考集合内部稳定性和退化强度等证据。第三，生成全局条件、属性槽条件和保守回退 token，并将它们送入 SDXL/ControlNet 去噪路径。图~\ref{fig:multi_evidence_routing} 给出可信度分配适配器，图~\ref{fig:overview} 给出完整恢复流程。
+本节介绍 ConsistentFace 的具体实现。整体上，ConsistentFace 不改变 SDXL/ControlNet 恢复主干，而是在参考图像和文本提示进入去噪网络之前增加一个可信度适配器。退化图像 $y$ 始终作为可靠观测锚点，由 ControlNet 提供结构约束；参考集合 $\mathcal{R}$ 被编码为身份 token；文本提示 $T$ 被编码为语义 token。适配器的职责不是直接生成新内容，而是判断参考和文本这两类外部先验在当前样本中应被如何使用。
+
+如图~\ref{fig:multi_evidence_routing} 和图~\ref{fig:overview} 所示，ConsistentFace 的前向过程包含三步。首先，模型分别抽取退化观测、参考集合和文本提示的条件表征。其次，模型以退化观测为锚点构造多维证据，用于区分文本幻觉、参考失效、双先验失效和局部属性冲突。最后，适配器根据这些证据生成全局条件 token、属性槽级条件 token 和保守回退 token，并将它们拼接后送入 SDXL/ControlNet 去噪路径。这样的结构将恢复主干和可信度路由解耦：主干负责图像恢复，适配器只负责外部先验的使用强度和使用方向。
 
 \begin{figure*}[t]
 \centering
@@ -138,8 +140,8 @@ ConsistentFace 建立在 SDXL/ControlNet 恢复主干之上。退化图像通过
 \label{fig:overview}
 \end{figure*}
 
-\subsection{条件特征抽取}
-对于参考集合 $\mathcal{R}=\{R_i\}_{i=1}^{M}$，模型使用身份编码器和视觉编码器提取参考特征，并将其映射为可注入扩散模型的身份 token：
+\subsection{条件编码}
+本节先说明三类输入如何被转化为可比较、可路由的条件表示。对于参考集合 $\mathcal{R}=\{R_i\}_{i=1}^{M}$，模型同时使用身份编码器和视觉编码器提取特征，再通过可学习映射器将多张参考图像聚合为身份 token：
 \begin{equation}
 \label{eq:reference_tokens}
 \begin{aligned}
@@ -149,9 +151,9 @@ V&=\Phi_R\!\left(\{e^{I}_{R_i},Z_{R_i}\}_{i=1}^{M}\right),\\
 V&=[v_1,\ldots,v_K].
 \end{aligned}
 \end{equation}
-式~\eqref{eq:reference_tokens} 中，$R_i$ 表示第 $i$ 张参考图像，$i$ 是参考图像索引，$M$ 是参考图像数量；$E_I$ 表示身份编码器（实现中采用 ArcFace），$e^{I}_{R_i}$ 是参考图像 $R_i$ 的身份嵌入；$E_V$ 表示视觉特征编码器，$Z_{R_i}$ 是参考图像的视觉特征；$\Phi_R$ 是可学习的参考特征映射器，用于将多张参考图像的身份和视觉特征聚合为 token 序列；$V$ 表示参考身份 token 块；$v_k$ 表示第 $k$ 个身份 token，$k$ 是 token 索引，$K$ 是身份 token 数量。
+其中，$E_I$ 是身份编码器（实现中采用 ArcFace），$E_V$ 是视觉特征编码器，$\Phi_R$ 是参考特征映射器。$V=[v_1,\ldots,v_K]$ 表示最终的参考身份 token 块，$K$ 为 token 数量。与仅使用单个身份向量不同，token 形式便于后续在全局层面和属性槽层面分别调整参考条件的强度。
 
-文本提示 $T$ 通过文本编码器得到序列语义特征，并映射到与身份 token 兼容的条件空间：
+文本提示 $T$ 使用 SDXL 文本编码器得到序列语义特征，并映射到与参考 token 兼容的条件空间：
 \begin{equation}
 \label{eq:text_tokens}
 \begin{aligned}
@@ -160,27 +162,27 @@ t&=\operatorname{Pool}(H),\\
 U&=\Phi_T(H)=[u_1,\ldots,u_K].
 \end{aligned}
 \end{equation}
-式~\eqref{eq:text_tokens} 中，$T$ 表示自然语言提示；$E_T$ 表示 SDXL 文本编码器；$H$ 表示文本 token 序列特征；$\operatorname{Pool}(\cdot)$ 表示池化操作；$t$ 表示全局文本语义向量；$\Phi_T$ 表示可学习的文本特征映射器；$U$ 表示文本语义 token 块；$u_k$ 表示第 $k$ 个文本语义 token。为便于后续计算，$U$ 与 $V$ 被映射到相同维度并具有相同 token 数量 $K$。
+其中，$H$ 是文本序列特征，$t$ 是全局文本语义向量，$U=[u_1,\ldots,u_K]$ 是文本语义 token 块。为便于直接进行参考/文本路由，$\Phi_T$ 将文本 token 映射到与 $V$ 相同的维度和 token 数量。
 
-本文还使用退化图像编码器提取观测特征，并定义参考和文本 token 的平均表示：
+退化图像不作为待判别的外部先验，而是作为目标身份和结构的可靠观测锚点。模型使用退化图像编码器提取观测特征，并定义参考和文本 token 的平均表示：
 \begin{equation}
 \label{eq:mean_tokens}
 f_y=E_y(y),\qquad
 \bar{v}=\frac{1}{K}\sum_{k=1}^{K}v_k,\qquad
 \bar{u}=\frac{1}{K}\sum_{k=1}^{K}u_k.
 \end{equation}
-式~\eqref{eq:mean_tokens} 中，$y$ 表示退化观测图像；$E_y$ 表示退化图像编码器；$f_y$ 表示由 $y$ 提取的观测特征；$\bar{v}$ 表示身份 token 的平均特征；$\bar{u}$ 表示文本语义 token 的平均特征；$1/K$ 是归一化系数，用于对 $K$ 个 token 求均值。
+其中，$f_y$ 是由可靠退化观测提取的特征，$\bar{v}$ 和 $\bar{u}$ 分别是参考身份 token 和文本语义 token 的平均表示。后续所有观测--先验一致性分数都以 $f_y$ 为锚点，判断参考或文本是否偏离目标观测。
 
 \subsection{多维可信度证据}
-为避免将所有冲突简化为单一参考--文本相似度，本文首先定义余弦相似度：
+参考--文本相似度只能说明二者是否一致，却不能说明错误来自哪一方。为获得可解释的路由依据，ConsistentFace 同时计算参考--文本一致性、观测--参考一致性、观测--文本一致性、参考集合内部稳定性和退化强度。本文首先定义余弦相似度：
 \begin{equation}
 \label{eq:cosine_similarity}
 \operatorname{sim}(a,b)=
 \frac{a^{\top}b}{\|a\|_2\,\|b\|_2}.
 \end{equation}
-式~\eqref{eq:cosine_similarity} 中，$a$ 和 $b$ 表示任意两个待比较的特征向量；$a^{\top}b$ 表示二者的内积；$\|\cdot\|_2$ 表示二范数；$\operatorname{sim}(a,b)$ 的取值越大，表示两个特征在方向上越一致。
+该相似度用于比较投影到同一空间中的不同条件特征，取值越大表示方向越一致。
 
-基于该相似度，ConsistentFace 构造四类全局证据：
+具体而言，ConsistentFace 构造如下四类全局一致性分数：
 \begin{subequations}
 \label{eq:multi_evidence_scores}
 \begin{align}
@@ -196,16 +198,16 @@ s_{RR}
 \operatorname{sim}\!\left(e^{I}_{R_i},e^{I}_{R_j}\right).
 \end{align}
 \end{subequations}
-式~\eqref{eq:multi_evidence_scores} 中，$s_{RT}$ 表示参考先验与文本先验的一致性；$s_{yR}$ 表示以退化观测为可靠锚点时参考集合的身份一致性；$s_{yT}$ 表示以退化观测为可靠锚点时文本属性的一致性；$s_{RR}$ 表示参考集合内部的身份稳定性。这里的观测--先验一致性分数不评估 $y$ 是否可信，而是检查参考图像或文本提示是否偏离目标观测中仍可提取的身份与属性线索。$P_R$、$P_T$、$P_y^{I}$、$P_y^{A}$ 和 $P_T^{A}$ 均为可学习投影头，分别将参考特征、文本特征、退化图像身份特征、退化图像属性特征和文本属性特征映射到可比较空间。$e^{I}_{R_i}$ 与 $e^{I}_{R_j}$ 分别表示第 $i$ 和第 $j$ 张参考图像的身份嵌入；求和条件 $1\leq i<j\leq M$ 表示遍历所有不同参考图像对；系数 $2/[M(M-1)]$ 用于对所有参考图像对的相似度取平均。若只有一张参考图像，$s_{RR}$ 在实现中被设为中性常数，避免参考集合内部一致性项影响判断。
+其中，$s_{RT}$ 衡量参考先验与文本先验的一致性；$s_{yR}$ 衡量参考身份是否与可靠退化观测中的身份线索一致；$s_{yT}$ 衡量文本属性是否与可靠退化观测中的可见属性线索一致；$s_{RR}$ 衡量参考集合内部的身份稳定性。$P_R$、$P_T$、$P_y^{I}$、$P_y^{A}$ 和 $P_T^{A}$ 是可学习投影头，用于将不同来源的特征映射到可比较空间。若只有一张参考图像，$s_{RR}$ 在实现中设为中性常数，避免参考集合内部一致性项主导判断。需要强调的是，$s_{yR}$ 和 $s_{yT}$ 并不评估 $y$ 是否可靠，而是利用 $y$ 这一可靠观测锚点检查参考或文本是否偏离目标观测。
 
-除上述一致性证据外，模型还估计退化强度：
+除一致性证据外，模型还估计退化强度：
 \begin{equation}
 \label{eq:degradation_score}
 q=Q(y).
 \end{equation}
-式~\eqref{eq:degradation_score} 中，$Q$ 表示退化强度估计器，$q$ 表示由退化图像 $y$ 得到的退化强度代理分数。$q$ 越大，表示从可靠退化观测中可提取的身份或属性证据越弱，分配器在使用参考和文本等外部先验时应更保守；这并不表示 $y$ 本身不可靠，而是表示 $y$ 的判别信息量受到退化限制。
+其中，$Q$ 为退化强度估计器。$q$ 越大，表示从可靠退化观测中可提取的身份或属性证据越弱，分配器在使用参考和文本等外部先验时应更保守；这并不表示 $y$ 本身不可靠，而是表示 $y$ 的判别信息量受到退化限制。
 
-最终的全局证据向量定义为
+最终，适配器将原始分数和差值分数组成全局证据向量：
 \begin{equation}
 \label{eq:global_evidence_vector}
 g=
@@ -219,10 +221,10 @@ s_{RT}-s_{yR},\,
 s_{RT}-s_{yT}
 \right].
 \end{equation}
-式~\eqref{eq:global_evidence_vector} 中，$g$ 表示全局可信度证据向量；前五项分别保留参考--文本一致性、以退化观测为锚点的参考身份一致性、以退化观测为锚点的文本属性一致性、参考集合内部一致性和退化强度；差值 $s_{RT}-s_{yR}$ 用于区分“参考与文本一致但二者都偏离可靠退化观测中的身份线索”和“参考与退化观测身份线索一致但文本不可靠”的情形；差值 $s_{RT}-s_{yT}$ 用于辅助判断文本属性是否与可靠退化观测中的可见属性线索一致。
+其中，差值 $s_{RT}-s_{yR}$ 用于区分“参考与文本一致但二者都偏离退化观测中的身份线索”和“参考与退化观测身份线索一致但文本不可靠”的情形；差值 $s_{RT}-s_{yT}$ 用于辅助判断文本属性是否与退化观测中的可见属性线索一致。这些差值使适配器不仅知道冲突是否存在，也能获得冲突方向。
 
-\subsection{全局可信度研判与权重分配}
-全局可信度分配器根据证据向量 $g$ 预测两个标量权重：
+\subsection{全局可信度路由}
+全局路由决定参考身份 token、文本语义 token 和保守回退 token 的相对贡献。给定证据向量 $g$，分配器预测两个标量权重：
 \begin{subequations}
 \label{eq:global_weights}
 \begin{align}
@@ -230,26 +232,26 @@ s_{RT}-s_{yT}
 c&=\sigma\!\left(f_{c}(g)\right).
 \end{align}
 \end{subequations}
-式~\eqref{eq:global_weights} 中，$f_{\alpha}$ 和 $f_c$ 表示两个独立的多层感知机；$\sigma(\cdot)$ 表示 Sigmoid 函数，用于将输出压缩到 $[0,1]$；$\alpha$ 表示视觉身份先验与文本语义先验之间的分配权重，$\alpha$ 越大表示参考身份 token 权重越高，$1-\alpha$ 越大表示文本语义 token 权重越高；$c$ 表示外部先验整体置信度，$c$ 越大表示参考和文本条件权重越高，$1-c$ 越大表示保守回退 token 权重越高。
+其中，$f_{\alpha}$ 和 $f_c$ 是两个多层感知机，$\sigma(\cdot)$ 将输出压缩到 $[0,1]$。$\alpha$ 控制参考身份 token 与文本语义 token 的相对权重；$c$ 控制外部先验与保守回退 token 的相对权重。当参考可靠而文本可疑时，模型应增大 $\alpha$；当文本可靠而参考过时或失配时，模型应减小 $\alpha$；当两类外部先验都可疑时，模型应减小 $c$。
 
-全局条件 token 定义为
+全局条件 token 因此写为
 \begin{equation}
 \label{eq:global_fusion}
 F_g=
 c\Big(\alpha V+(1-\alpha)U\Big)
 +(1-c)B_g.
 \end{equation}
-式~\eqref{eq:global_fusion} 中，$F_g$ 表示全局融合 token 块；$V$ 是参考身份 token 块；$U$ 是文本语义 token 块；$B_g$ 是可学习的全局保守回退 token，与 $V$ 和 $U$ 具有相同维度；$\alpha$ 和 $c$ 为式~\eqref{eq:global_weights} 中得到的标量权重，并在 token 维度上广播。当参考可靠而文本可疑时，期望 $\alpha$ 增大；当文本可靠而参考过时或失配时，期望 $\alpha$ 减小；当参考和文本均不可靠时，期望 $c$ 减小，从而降低外部先验的条件强度。
+其中，$B_g$ 是可学习的全局保守回退 token，与 $V$ 和 $U$ 具有相同维度。该 token 不携带额外身份或文本事实，而是在外部先验证据不足时提供更低风险的条件路径。
 
 \subsection{属性槽级可信度分配}
-全局权重只能给出整体偏好，难以处理“文本提示仅在眼镜属性上存在错误，而发型描述仍然正确”这类局部冲突。因此，本文将提示拆分为属性槽集合 $\mathcal{A}$，其中 $\mathcal{A}$ 包含头发、眼镜/眼睛、胡须/嘴巴、年龄/皮肤和配饰/遮挡五类属性。对于任一属性槽 $a\in\mathcal{A}$，模型从文本序列中抽取槽级文本特征：
+全局路由无法处理只发生在局部属性上的冲突。例如，文本可能只在“眼镜”属性上出错，但发型和遮挡描述仍然可用。为避免一个局部错误触发全局文本丢弃，本文将提示拆分为属性槽集合 $\mathcal{A}$，包含头发、眼镜/眼睛、胡须/嘴巴、年龄/皮肤和配饰/遮挡五类属性。对于任一属性槽 $a\in\mathcal{A}$，模型先从文本序列中抽取槽级文本特征：
 \begin{equation}
 \label{eq:slot_text_feature}
 t_a=\Psi_a(H).
 \end{equation}
-式~\eqref{eq:slot_text_feature} 中，$a$ 表示属性槽索引；$\Psi_a$ 表示属性槽 $a$ 对应的文本特征提取器；$H$ 是式~\eqref{eq:text_tokens} 中的文本序列特征；$t_a$ 表示属性槽 $a$ 的文本语义 token。
+其中，$\Psi_a$ 是属性槽 $a$ 的文本特征提取器，$t_a$ 表示该槽对应的文本语义 token。
 
-为了获得与属性槽相关的参考特征，模型使用可学习查询对身份 token 执行注意力汇聚：
+为了获得与同一属性槽相关的参考特征，模型使用可学习查询对身份 token 执行注意力汇聚：
 \begin{subequations}
 \label{eq:slot_attention}
 \begin{align}
@@ -266,9 +268,9 @@ v_a
 \sum_{k=1}^{K}\omega_{a,k}W_V v_k.
 \end{align}
 \end{subequations}
-式~\eqref{eq:slot_attention} 中，$e_a$ 表示属性槽 $a$ 的可学习查询向量；$W_Q$、$W_K$ 和 $W_V$ 分别表示查询、键和值的线性投影矩阵；$d$ 表示注意力特征维度，$\sqrt{d}$ 用于缩放点积；$\omega_{a,k}$ 表示属性槽 $a$ 对第 $k$ 个身份 token 的注意力权重；$\ell$ 是归一化求和中的 token 索引；$v_a$ 表示属性槽 $a$ 对应的参考视觉特征。
+其中，$e_a$ 是属性槽查询向量，$W_Q$、$W_K$ 和 $W_V$ 分别为查询、键和值的线性投影矩阵，$v_a$ 表示与属性槽 $a$ 对应的参考视觉特征。
 
-属性槽级证据由参考--文本槽一致性和以退化观测为锚点的文本槽一致性构成：
+随后，适配器在每个槽内计算参考--文本一致性和以退化观测为锚点的文本一致性：
 \begin{subequations}
 \label{eq:slot_scores}
 \begin{align}
@@ -278,9 +280,9 @@ s_{ya}
 &=\operatorname{sim}\!\left(P_y^{a}(f_y),P_T^{a}(t_a)\right).
 \end{align}
 \end{subequations}
-式~\eqref{eq:slot_scores} 中，$s_a$ 表示属性槽 $a$ 上参考特征与文本特征的一致性；$s_{ya}$ 表示以退化观测为可靠锚点时文本特征在属性槽 $a$ 上的一致性。该分数用于评估文本槽是否与可观测属性线索相符，而不是评估退化图像本身是否可信。$P_R^{a}$、$P_T^{a}$ 和 $P_y^{a}$ 是属性槽 $a$ 对应的可学习投影头；$v_a$ 是槽级参考特征，$t_a$ 是槽级文本特征，$f_y$ 是退化图像特征。
+其中，$s_a$ 表示该属性槽内参考特征与文本特征的一致性；$s_{ya}$ 表示文本槽是否与可靠退化观测中的可见属性线索一致。该分数仍然不评估退化图像本身是否可信，而是评估文本槽是否偏离目标观测。
 
-随后，模型为每个属性槽预测独立的视觉/文本分配权重和回退置信度：
+每个属性槽使用自己的局部证据预测视觉/文本权重和回退置信度：
 \begin{subequations}
 \label{eq:slot_weights}
 \begin{align}
@@ -289,21 +291,21 @@ g_a&=\left[g,\,s_a,\,s_{ya},\,\alpha,\,c\right],\\
 c_a&=\sigma\!\left(f_{c}^{a}(g_a)\right).
 \end{align}
 \end{subequations}
-式~\eqref{eq:slot_weights} 中，$g_a$ 表示属性槽 $a$ 的局部证据向量，由全局证据 $g$、槽一致性分数 $s_a$、以退化观测为锚点的文本槽一致性 $s_{ya}$、全局视觉/文本权重 $\alpha$ 和全局外部先验置信度 $c$ 拼接而成；$f_{\alpha}^{a}$ 和 $f_c^{a}$ 表示属性槽 $a$ 的两个多层感知机；$\alpha_a$ 表示属性槽 $a$ 中参考视觉特征与文本特征的分配权重；$c_a$ 表示属性槽 $a$ 的外部先验置信度。
+其中，$g_a$ 拼接了全局证据、槽级一致性分数以及全局路由结果。$\alpha_a$ 控制该槽中参考视觉特征与文本特征的相对权重；$c_a$ 控制该槽中外部先验与保守回退之间的相对权重。
 
-属性槽级融合 token 定义为
+槽级融合 token 定义为
 \begin{equation}
 \label{eq:slot_fusion}
 F_a=
 c_a\Big(\alpha_a v_a+(1-\alpha_a)t_a\Big)
 +(1-c_a)B_a.
 \end{equation}
-式~\eqref{eq:slot_fusion} 中，$F_a$ 表示属性槽 $a$ 的融合 token；$v_a$ 表示槽级参考视觉特征；$t_a$ 表示槽级文本特征；$B_a$ 表示属性槽 $a$ 的保守回退 token；$\alpha_a$ 控制该属性槽中参考与文本的相对权重；$c_a$ 控制该属性槽中外部先验与保守回退之间的相对权重。所有条件 token 最终拼接为
+其中，$B_a$ 是属性槽 $a$ 的保守回退 token。所有条件 token 最终拼接为
 \begin{equation}
 \label{eq:condition_tokens}
 F=\operatorname{Concat}\!\left(F_g,\{F_a:a\in\mathcal{A}\}\right).
 \end{equation}
-式~\eqref{eq:condition_tokens} 中，$F$ 表示最终注入扩散模型的条件 token 集合；$\operatorname{Concat}(\cdot)$ 表示 token 维度上的拼接操作；$\{F_a:a\in\mathcal{A}\}$ 表示遍历属性集合 $\mathcal{A}$ 后得到的所有槽级 token。
+其中，$F$ 是最终注入扩散模型的条件 token 集合。通过这种设计，一个错误的局部描述只会影响对应属性槽，而不会迫使模型丢弃其他仍可信的文本信息。
 
 \begin{figure*}[t]
 \centering
@@ -312,8 +314,8 @@ F=\operatorname{Concat}\!\left(F_g,\{F_a:a\in\mathcal{A}\}\right).
 \label{fig:attribute_slot_routing}
 \end{figure*}
 
-\subsection{训练目标与推理}
-扩散训练采用标准噪声预测目标。设 $z_0$ 为清晰目标图像 $x$ 的 VAE 潜变量，$\tau$ 为扩散时间步，$\epsilon$ 为从标准高斯分布采样的噪声，则加噪潜变量为
+\subsection{训练目标与推理策略}
+训练目标包含恢复主干的扩散噪声预测损失，以及用于约束可信度路由的排序监督、回退正则和解缠结正则。首先，设 $z_0$ 为清晰目标图像 $x$ 的 VAE 潜变量，$\tau$ 为扩散时间步，$\epsilon$ 为从标准高斯分布采样的噪声，则加噪潜变量为
 \begin{equation}
 \label{eq:noisy_latent}
 z_{\tau}
@@ -322,9 +324,9 @@ z_{\tau}
 +
 \sqrt{1-\bar{\gamma}_{\tau}}\,\epsilon.
 \end{equation}
-式~\eqref{eq:noisy_latent} 中，$z_{\tau}$ 表示第 $\tau$ 步的带噪潜变量；$\bar{\gamma}_{\tau}$ 表示扩散噪声调度在时间步 $\tau$ 的累计保留系数；$z_0$ 表示干净图像的潜空间表示；$\epsilon$ 表示随机噪声。
+其中，$\bar{\gamma}_{\tau}$ 表示扩散噪声调度在时间步 $\tau$ 的累计保留系数。
 
-对应的扩散去噪损失为
+对应的去噪损失为
 \begin{equation}
 \label{eq:diffusion_loss}
 \mathcal{L}_{\mathrm{diff}}
@@ -336,14 +338,14 @@ z_{\tau}
 \right\|_2^2
 \right].
 \end{equation}
-式~\eqref{eq:diffusion_loss} 中，$\mathcal{L}_{\mathrm{diff}}$ 表示扩散噪声预测损失；$\mathbb{E}$ 表示对训练样本、噪声和时间步的期望；$\epsilon_{\theta}$ 表示参数为 $\theta$ 的去噪网络；$C_y$ 表示由退化图像 $y$ 提取的 ControlNet 结构条件；$F$ 是式~\eqref{eq:condition_tokens} 中的可信度分配后条件 token；$\|\cdot\|_2^2$ 表示平方二范数。
+其中，$C_y$ 是由退化图像 $y$ 提取的 ControlNet 结构条件，$F$ 是可信度分配后的条件 token。
 
-排序监督来自训练清单中的冲突类型标签 $r$，但该标签只用于构造权重之间的相对偏序，不作为推理输入，也不直接拼接到证据向量。令全局权重集合为
+排序监督来自训练清单中的冲突类型标签 $r$。与直接把标签作为输入不同，ConsistentFace 只用 $r$ 构造权重之间的相对偏序；推理阶段既不输入 $r$，也不输入属性污染标签。令全局权重集合为
 \begin{equation}
 \label{eq:global_weight_set}
 \mathcal{W}_g=\{\alpha,\ 1-\alpha,\ c,\ 1-c\},
 \end{equation}
-其中四项分别对应参考偏好、文本偏好、外部先验置信度和保守回退偏好。每个冲突类型 $r$ 预先映射到一组期望排序对 $\mathcal{P}_g(r)=\{(w^+,w^-)\}$。例如，文本事实幻觉要求 $\alpha>1-\alpha$ 且 $c>1-c$；错误或过时参考要求 $1-\alpha>\alpha$ 且 $c>1-c$；双先验联合失效要求 $1-c>c$。全局排序损失定义为
+其中四项分别对应参考偏好、文本偏好、外部先验置信度和保守回退偏好。每个冲突类型 $r$ 被映射到一组期望排序对 $\mathcal{P}_g(r)=\{(w^+,w^-)\}$。例如，文本事实幻觉要求参考权重大于文本权重且外部先验仍可用；错误或过时参考要求文本权重大于参考权重；双先验联合失效要求回退权重大于外部先验权重。全局排序损失为
 \begin{equation}
 \label{eq:global_rank_loss}
 \begin{aligned}
@@ -355,9 +357,9 @@ z_{\tau}
 &\max\!\left(0,\ m_g-(w^+-w^-)\right).
 \end{aligned}
 \end{equation}
-其中 $m_g$ 是全局排序间隔。该损失只约束相对方向，不要求权重拟合人工设定的固定常数。
+其中 $m_g$ 是全局排序间隔。该损失只约束相对方向，不要求权重拟合人工设定的固定数值，因此可避免把训练标签泄漏为推理时的显式条件。
 
-对于属性槽监督，训练清单同时记录被污染的局部属性集合 $\mathcal{A}^{-}(r)\subseteq\mathcal{A}$ 以及该槽应优先参考、优先文本或回退的目标路由。令槽级权重集合为
+属性槽监督同样使用相对排序。训练清单记录被污染的局部属性集合 $\mathcal{A}^{-}(r)\subseteq\mathcal{A}$，以及对应槽应优先参考、优先文本或回退的目标路由。令槽级权重集合为
 \begin{equation}
 \label{eq:slot_weight_set}
 \mathcal{W}_a=\{\alpha_a,\ 1-\alpha_a,\ c_a,\ 1-c_a\}.
@@ -378,7 +380,7 @@ z_{\tau}
 \end{equation}
 其中 $m_a$ 是槽级排序间隔。当 $\mathcal{A}^{-}$ 为空时，该项置为 $0$。
 
-保守回退正则用于双先验均可疑时提高回退 token 的使用比例。设 $b_g(r)\in\{0,1\}$ 表示全局是否需要回退，$b_a(r,a)\in\{0,1\}$ 表示属性槽是否需要回退，则
+保守回退正则用于在参考和文本都可疑时提高回退 token 的使用比例。设 $b_g(r)\in\{0,1\}$ 表示全局是否需要回退，$b_a(r,a)\in\{0,1\}$ 表示属性槽是否需要回退，则
 \begin{equation}
 \label{eq:fallback_loss}
 \begin{aligned}
@@ -421,9 +423,9 @@ z_{\tau}
 +
 \lambda_r\mathcal{L}_{\mathrm{reg}}.
 \end{equation}
-式~\eqref{eq:training_objective} 中，$\mathcal{L}$ 表示总损失；$\lambda_g$、$\lambda_a$、$\lambda_b$ 和 $\lambda_r$ 是四个非负超参数，分别控制全局排序、槽级排序、回退正则和解缠结正则。主实验使用同一组超参数训练所有 ConsistentFace 变体，并在验证集上固定后再评估自然语言、自由文本、评估器替换和人工评审子集。
+其中，$\lambda_g$、$\lambda_a$、$\lambda_b$ 和 $\lambda_r$ 分别控制全局排序、槽级排序、回退正则和解缠结正则。主实验使用同一组超参数训练所有 ConsistentFace 变体，并在验证集上固定后再评估自然语言、自由文本、评估器替换和人工评审子集。
 
-推理阶段，模型只接收 $(y,\mathcal{R},T)$，不再使用冲突类型标签、属性污染标签或模板编号。全局证据 $g$ 和槽级证据 $g_a$ 由输入本身计算得到，随后生成 $F_g$、$F_a$ 和最终条件 token $F$。因此，ConsistentFace 在部署时不依赖人工指定参考或文本的优先级，而是以退化观测为可靠锚点，根据参考集合和文本提示相对该锚点的证据关系自适应完成可信度研判与权重分配。
+推理阶段，模型只接收 $(y,\mathcal{R},T)$。全局证据 $g$ 和槽级证据 $g_a$ 由输入本身计算得到，随后生成 $F_g$、$F_a$ 和最终条件 token $F$。因此，ConsistentFace 在部署时不依赖人工指定参考或文本的优先级，也不需要冲突类型标签、属性污染标签或模板编号；它只根据参考集合和文本提示相对可靠退化观测的证据关系，自适应完成可信度研判与权重分配。
 
 \section{实验}
 \label{sec:main_experiments}

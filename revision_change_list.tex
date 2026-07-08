@@ -99,6 +99,13 @@
     \item 结果：方法部分更像参考论文的“先给整体管线，再进入模块细节”的写法。
   \end{itemize}
 
+  \item \textbf{方法部分按 FaceMe 式写法二次大修}
+  \begin{itemize}
+    \item 位置：\texttt{方法} 全节，包括条件编码、多维可信度证据、全局路由、属性槽路由、训练目标与推理策略。
+    \item 修改：重写方法叙述顺序，改为“整体框架-模块职责-具体公式-训练/推理边界”的推进方式；减少逐符号流水账解释，增加每个模块为何存在、解决什么冲突和如何与恢复主干衔接的说明。
+    \item 结果：方法部分更接近 FaceMe 的方法写法节奏，但未借用其技术内容；公式标签、核心方法主张和实验数值保持不变。
+  \end{itemize}
+
   \item \textbf{实验设置改写}
   \begin{itemize}
     \item 位置：\texttt{评测设置} 和 \texttt{数据构建和划分}。
@@ -134,10 +141,10 @@
 
 \begin{itemize}
   \item 主论文已使用 \texttt{latexmk -pdfxe consistentface\_tip\_zh.tex} 编译成功。
-  \item 最新主论文 PDF 为 16 页，已渲染全页缩略图检查。
+  \item 最新主论文 PDF 为 15 页，已渲染全页缩略图检查。
   \item 日志未检出 LaTeX error、citation warning、未解析引用或 overfull。
   \item 仅剩字体替换和 underfull 提示，不影响内容完整性。
-  \item 本轮结束前将删除 \texttt{.aux}、\texttt{.bbl}、\texttt{.blg}、\texttt{.fdb\_latexmk}、\texttt{.fls}、\texttt{.log}、\texttt{.xdv}、\texttt{.synctex.gz} 以及临时渲染图片等中间文件。
+  \item 已删除 \texttt{.aux}、\texttt{.bbl}、\texttt{.blg}、\texttt{.fdb\_latexmk}、\texttt{.fls}、\texttt{.log}、\texttt{.xdv}、\texttt{.synctex.gz} 以及临时渲染图片等中间文件，根目录不保留编译副产物。
 \end{itemize}
 
 \end{document}
