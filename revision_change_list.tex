@@ -85,6 +85,13 @@
     \item 结果：符号、任务和标签使用关系更清楚，避免读者误以为推理阶段需要冲突标签。
   \end{itemize}
 
+  \item \textbf{退化观测可靠锚点表述统一}
+  \begin{itemize}
+    \item 位置：摘要、绪论、问题表述、方法证据定义、反事实实验分析、自然语言提示分析、局限性和结论。
+    \item 修改：统一说明退化图像是目标人脸的可靠观测锚点；退化强度只表示从该观测中可提取的身份/属性证据变弱，不表示观测图像本身不可靠。
+    \item 结果：全文将不可靠来源限定为参考图像和文本提示等外部先验，并明确 $s_{yR}$、$s_{yT}$、$s_{ya}$ 是以可靠退化观测为锚点评估参考/文本是否偏离目标观测。
+  \end{itemize}
+
   \item \textbf{方法开场改写}
   \begin{itemize}
     \item 位置：\texttt{方法} 开头。
@@ -127,7 +134,7 @@
 
 \begin{itemize}
   \item 主论文已使用 \texttt{latexmk -pdfxe consistentface\_tip\_zh.tex} 编译成功。
-  \item 最新主论文 PDF 为 15 页，已渲染全页缩略图检查。
+  \item 最新主论文 PDF 为 16 页，已渲染全页缩略图检查。
   \item 日志未检出 LaTeX error、citation warning、未解析引用或 overfull。
   \item 仅剩字体替换和 underfull 提示，不影响内容完整性。
   \item 本轮结束前将删除 \texttt{.aux}、\texttt{.bbl}、\texttt{.blg}、\texttt{.fdb\_latexmk}、\texttt{.fls}、\texttt{.log}、\texttt{.xdv}、\texttt{.synctex.gz} 以及临时渲染图片等中间文件。
