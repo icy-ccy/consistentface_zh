@@ -6,10 +6,10 @@
 
 ## 已补充或强化引用的表述
 
-1. **盲人脸恢复高度欠定，严重退化下可能产生身份偏移。**
+1. **严重退化会削弱身份线索，并可能导致恢复结果发生身份偏移。**
    - 正文位置：摘要、绪论、相关工作。
    - 处理：在绪论中补充 `\cite{liu2025faceme,suin2024diffuse,niu2026iconface}`；在相关工作中补充 `\cite{liu2025faceme,niu2026iconface}`。
-   - 支撑逻辑：FaceMe 和 IConFace 均将盲/参考感知人脸恢复描述为高度欠定或身份信息不足问题，并强调身份一致性风险；Diffuse and Restore 关注 identity-preserving BFR。
+   - 支撑逻辑：FaceMe 和 IConFace 均关注严重退化下的身份线索衰减与身份一致性风险；Diffuse and Restore 关注 identity-preserving BFR。
 
 2. **自动描述模型或视觉语言模型可能产生与图像不一致的幻觉内容。**
    - 正文位置：绪论、语言引导恢复与编辑。
