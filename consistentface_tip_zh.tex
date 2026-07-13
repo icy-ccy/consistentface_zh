@@ -8,6 +8,8 @@
 \usepackage{url}
 \usepackage{xcolor}
 \usepackage{microtype}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,positioning,fit}
 \renewcommand{\ttdefault}{cmtt}
 \providecommand{\href}[2]{\url{#1}}
 \def\UrlBreaks{\do\/\do-\do\_\do\.\do\:\do\?\do\=\do\&}
@@ -23,12 +25,6 @@
 
 \graphicspath{{../}}
 \newcommand{\best}[1]{\textbf{#1}}
-\newcommand{\figureplaceholder}[2]{%
-\fbox{%
-\begin{minipage}[c][#1][c]{0.96\linewidth}
-\centering
-\textcolor{gray}{\large #2}
-\end{minipage}}}
 
 \title{面向身份保持人脸恢复的\\双先验冲突感知适配器研究}
 
@@ -42,7 +38,7 @@
 \maketitle
 
 \begin{abstract}
-严重退化会削弱人脸图像中的身份与属性线索，使现有方法虽能生成视觉自然的结果，却可能偏离目标身份。参考图像和文本提示可补充退化观测中缺失的信息，但参考图像可能过时或失配，文本提示也可能包含错误描述，二者还可能仅在局部属性上发生冲突。为此，本文提出 ConsistentFace，一种面向参考--文本冲突的可信度分配适配器。ConsistentFace 计算参考--文本、观测--参考、观测--文本和参考集合内部的一致性，并结合退化强度估计条件可信度。模型随后在全局和属性槽级分配参考、文本与回退条件。训练阶段，冲突类型仅用于监督条件分配；推理阶段无须提供冲突标签。实验结果表明，ConsistentFace 降低了条件冲突造成的身份差距和错误属性采纳率，并在多评估器与人工评审中保持一致趋势。
+严重退化会削弱人脸图像中的身份与属性线索，使现有方法虽能生成视觉自然的结果，却可能偏离目标身份。参考图像和文本提示可补充退化观测中缺失的信息，但参考图像可能过时或失配，文本提示也可能包含错误描述，二者还可能仅在局部属性上发生冲突。为此，本文提出 ConsistentFace，一种面向参考--文本冲突的可信度分配适配器。ConsistentFace 计算参考--文本、观测--参考、观测--文本和参考集合内部的一致性，并结合退化强度估计条件可信度。模型随后在全局和属性槽级分配参考、文本与回退条件。训练阶段，冲突类型仅用于监督条件分配；推理阶段无须提供冲突标签。大量实验表明，ConsistentFace 降低了条件冲突造成的身份差距和错误属性采纳率，并在自然语言、多评估器与人工评审中保持一致趋势；退化变化压力测试进一步揭示了文本冲突造成的身份下降。
 \end{abstract}
 
 \begin{IEEEkeywords}
@@ -73,7 +69,7 @@
     
     \item \textbf{设计全局与属性槽级条件分配机制：} 分别处理整体条件失效和局部属性冲突，并在证据不足时使用回退条件。
 
-    \item \textbf{构建条件分配的训练与评测方案：} 通过排序和回退监督学习条件分配，并约束证据向量与提示模板及参考来源的相关性；推理阶段无须冲突标签。同一主干比较、反事实实验、多评估器验证和人工评审验证了方法的有效性。
+    \item \textbf{构建条件分配的训练与评测方案：} 通过排序与回退监督学习条件分配，并利用去相关约束降低提示模板和参考来源对分配结果的影响；推理阶段无须冲突标签。同一主干比较、反事实实验、多评估器验证和人工评审验证了方法的有效性。
 
 \end{itemize}
 
@@ -124,8 +120,8 @@ ConsistentFace 以 SDXL 和 ControlNet 为恢复主干 \cite{podell2023sdxl,zhan
 
 \begin{figure*}[t]
 \centering
-\includegraphics[width=\textwidth]{figures/cropped/fig01_reliability_routing_adapter_paper.png}
-\caption{多源证据可信度分配适配器。模型结合退化观测、参考集合和文本提示，在全局与属性槽级分配参考、文本和回退条件。}
+\resizebox{\textwidth}{!}{\input{figures/consistentface_pipeline.tex}}
+\caption{ConsistentFace 整体框架。退化观测经 ControlNet 提供结构条件；参考集合和文本提示经多源证据估计后，在全局与属性槽级分配参考、文本和回退条件。冲突标签只用于训练监督，推理阶段由输入证据完成分配。}
 \label{fig:multi_evidence_routing}
 \end{figure*}
 
@@ -140,7 +136,7 @@ V&=\Phi_R\!\left(\{e^{I}_{R_i},Z_{R_i}\}_{i=1}^{M}\right),\\
 V&=[v_1,\ldots,v_K].
 \end{aligned}
 \end{equation}
-其中，$E_I$ 是身份编码器（实现中采用 ArcFace \cite{deng2019arcface}），$E_V$ 是视觉特征编码器，$\Phi_R$ 是参考特征映射器。$V=[v_1,\ldots,v_K]$ 表示融合身份与视觉特征的参考条件 token，$K$ 为 token 数量。该 token 序列将在后续全局和属性槽级分配中分别加权。
+其中，$E_I$ 是身份编码器（实现中采用 ArcFace \cite{deng2019arcface}），$E_V$ 复用 PhotoMaker 的 CLIP 视觉编码器 \cite{li2024photomaker}，$\Phi_R$ 是参考特征映射器。$V=[v_1,\ldots,v_K]$ 表示融合身份与视觉特征的参考条件 token，$K$ 为 token 数量。该 token 序列将在后续全局和属性槽级分配中分别加权。
 
 文本提示 $T$ 使用 SDXL 文本编码器 \cite{podell2023sdxl} 得到序列语义特征，并映射到与参考条件 token 兼容的条件空间：
 \begin{equation}
@@ -412,122 +408,81 @@ z_{\tau}
 \label{sec:main_experiments}
 
 \subsection{实验设置}
-同一主干实验固定恢复主干、参考编码器、训练清单和推理步数，所有方法均接收 $(y,\mathcal{R},T)$。恢复主干采用 SDXL/ControlNet \cite{podell2023sdxl,zhang2023controlnet}。
+\subsubsection{训练数据与实现细节}
+训练集包含 70,000 条 FFHQ 目标记录 \cite{liu2025faceme}，每条记录均配有语义提示和由 FFHQRef 提取的同身份参考特征。所有图像缩放至 $512\times512$，每次随机采样不超过四张参考图像。提示模板为 ``A photo of face. \{semantic\}''；后续训练阶段以 $0.1$ 的概率移除身份 token 替换，以保留仅使用文本条件的基础能力。
 
-身份指标取 ArcFace、AdaFace、MagFace 和 CurricularFace 识别器的平均值 \cite{deng2019arcface,kim2022adaface,meng2021magface,huang2020curricularface}。TAR 降幅衡量冲突条件造成的人脸验证性能下降，排名反转用于检查传统恢复指标是否掩盖身份或属性错误。
+模型采用三个训练阶段：第一阶段联合训练参考映射、ControlNet 和可信度分配适配器 100 个 epoch，文本错误、参考错误和双条件失效的采样概率均为 $0.20$；第二阶段固定参考映射与适配器，继续训练 ControlNet 30 个 epoch；第三阶段以 $10^{-5}$ 的学习率联合微调 ControlNet 和适配器 10 个 epoch，三类冲突的采样概率分别为 $0.20$、$0.20$ 和 $0.15$。训练使用 batch size 4 和 bf16 混合精度。除特别说明外，推理采用固定噪声时间步 799、40 步去噪、CFG 4.0、ControlNet 条件强度 1.1 和小波颜色校正。
 
-属性指标包括基于 CelebA 训练的分类器 \cite{liu2015faceattributes}、OpenCLIP 属性评分 \cite{radford2021clip,ilharco2021openclip}、开放属性解析器和人工评审。除特别说明外，所有表格均报告预定义冲突清单上的结果。
+同一主干实验固定 SDXL/ControlNet 恢复主干 \cite{podell2023sdxl,zhang2023controlnet}、参考编码器、训练清单和推理参数。其中的所有可训练双先验变体均接收 $(y,\mathcal{R},T)$，并使用五个随机种子训练和评测。
 
-\subsubsection{数据构建与划分}
-评估套件以目标身份、退化观测和同身份参考图像为基础，并构造过时参考、错误参考和双条件失效等变体。退化配置参照现有盲人脸恢复工作中的模糊、下采样、噪声和压缩设置进行采样 \cite{wang2021gfpgan,zhou2022codeformer,wang2023dr2,liu2025faceme}。预定义清单包括匹配提示、轻度和重度文本冲突、文本幻觉、过时参考、错误参考以及参考与文本同时失效。五个随机种子的主要比较使用完整评测集。
+\subsubsection{测试数据与冲突构造}
+本文沿用 FaceMe 的 LFW-Test、WebPhoto-Test 和 WIDER-Test 划分 \cite{liu2025faceme}，并在各划分上构造匹配与冲突记录。三者分别包含 1,711/1,707、407/407 和 970/969 条匹配/冲突记录，并按照可用身份标识与训练集去重。真实退化测试包括 640 张低照度或社交媒体图像（320 个身份）和 520 张老照片或强压缩图像（260 个身份）。每个身份均配有同身份参考图像；提示由注释者在不查看恢复结果的条件下撰写，标注分歧通过第二轮复核解决。
 
-自然语言和自由文本子集使用更长的日常描述替换模板提示，并纳入疤痕、面具或手部遮挡、少见配饰、跨年龄参考和多个局部属性同时冲突等情形。
+退化过程包含模糊、下采样、噪声和 JPEG 压缩 \cite{wang2021gfpgan,zhou2022codeformer,wang2023dr2}。在同一目标身份、退化观测和参考集合上，本文构造匹配提示、轻度与重度文本冲突、文本幻觉、过时参考、错误参考以及双条件失效。文本幻觉提示来自其他身份，且不参与阈值或检查点选择。自由文本子集进一步覆盖跨年龄参考、遮挡、少见配饰和多个局部属性同时冲突等情形。
 
-本文还构造 $s_{RT}$ 与退化强度 $q$ 分布匹配的配对反事实测试集。该测试集成对生成文本幻觉和错误参考样本，并平衡退化类型、参考数量、参考质量、身份划分和提示长度。所有冲突标签均在训练前固定。文本幻觉提示由目标身份和参考身份之外的样本生成，且不参与阈值或检查点选择。
+为区分文本错误与参考错误，本文构造 $s_{RT}$ 和退化强度 $q$ 分布匹配的配对反事实测试集，并平衡退化类型、参考数量、参考质量、身份划分和提示长度。冲突标签仅用于训练监督和评测分组，推理阶段不提供该标签。
 
-\subsubsection{评价指标}
-身份差距定义为匹配条件与相应冲突条件之间的身份相似度下降，并在四个
-识别器上取平均。后文简称为“差距”。
-TAR 降幅表示从匹配条件切换到冲突条件后，TAR@FAR 在固定误接受率阈值下的下降量；
-排名反转衡量
-PSNR、SSIM \cite{wang2004ssim} 或 LPIPS \cite{zhang2018lpips} 等传统恢复指标是否会偏好身份或属性质量更差的候选结果。
-\begin{center}
-\setlength{\fboxsep}{4pt}
-\fbox{\begin{minipage}{0.96\linewidth}
-\small
-\setlength{\abovedisplayskip}{3pt plus 1pt minus 1pt}
-\setlength{\belowdisplayskip}{3pt plus 1pt minus 1pt}
-\textbf{指标定义。}
-给定身份相似度 $S_h$，身份差距定义为
-\[
-\begin{aligned}
-\mathrm{IdentityGap}
-=\mathbb{E}_{h}\big[
-&\mathbb{E}_{\mathrm{match}}S_h(\hat{x}^{\mathrm{match}},x)\\
-&-\mathbb{E}_{\mathrm{conf}}S_h(\hat{x}^{\mathrm{conf}},x)
-\big],
-\end{aligned}
-\]
-其中 $\mathrm{match}$ 和 $\mathrm{conf}$ 分别表示匹配条件与冲突条件。
-对于候选集 $\mathcal{C}_i$，排名反转定义为
-\[
-\begin{aligned}
-\mathrm{Rev}_i
-&=\mathbf{1}\{H(k^\star)<H(j)-\tau,\ \exists j\in\mathcal{C}_i\},\\
-k^\star
-&=\arg\max_{k\in\mathcal{C}_i}M(k).
-\end{aligned}
-\]
-其中 $M\in\{\mathrm{PSNR},\mathrm{SSIM},-\mathrm{LPIPS}\}$，
-$H$ 是身份或目标属性质量，$\tau=10^{-4}$ 是验证平局边距，
-精确平局将被忽略。属性槽 $a$ 上的错误属性采纳指示量定义为
-\[
-\begin{aligned}
-\mathrm{WPA}_a
-=\mathbf{1}\{&
-E_a(\hat{x})=z_a^{\mathrm{wrong}}\\
-&\land E_a(\hat{x})\ne z_a^{\mathrm{target}}\}.
-\end{aligned}
-\]
-该指标使用预设评估器阈值验证。局部反转将相同选择器应用于局部冲突候选，
-其中 $H$ 由局部 Target Attr-F1 和错误属性拒绝共同定义。
-\end{minipage}}
-\end{center}
-所有判定阈值均由验证集确定，并在测试阶段固定。
+\subsubsection{比较方法与评价指标}
+外部比较包括通用盲人脸恢复、参考驱动恢复和文本驱动恢复方法；同一主干比较则固定输入、参数规模和训练预算，只改变条件融合或可信度分配模块。该设置用于降低额外输入和恢复主干差异对路由机制比较的混淆。
 
-\subsection{不同先验输入设置下的基准比较}
+恢复质量采用 PSNR、SSIM \cite{wang2004ssim} 和 LPIPS \cite{zhang2018lpips}。身份指标分别由 ArcFace、AdaFace、MagFace 和 CurricularFace 评测 \cite{deng2019arcface,kim2022adaface,meng2021magface,huang2020curricularface}，主表报告四个识别器的平均身份差距。属性指标包括 CelebA 属性分类器 \cite{liu2015faceattributes}、OpenCLIP 属性评分 \cite{radford2021clip,ilharco2021openclip} 和开放属性解析器。TAR 降幅衡量冲突条件造成的验证性能下降，排名反转表示传统恢复指标选择的候选在人脸身份或目标属性上反而更差。指标公式和判定细节见附录~\ref{app:metric_definitions}；所有阈值均由验证集确定，并在测试阶段固定。
+
+\subsection{与现有方法比较}
+\subsubsection{不同先验输入设置}
 表~\ref{tab:external_context} 列出采用不同先验输入的代表性方法。由于输入接口和恢复主干不同，该表用于说明任务设置；核心性能比较见后续同一主干实验。
 
 \begin{table*}[!t]
 \centering
-\caption{不同先验输入设置下的代表性方法。ConsistentFace 行报告单种子结果；同一主干的五种子结果见表~\ref{tab:main_multiseed}。}
+\caption{不同输入条件下的结果概览。}
 \label{tab:external_context}
 {\scriptsize
 \setlength{\tabcolsep}{1mm}
 \resizebox{\textwidth}{!}{%
 \begin{tabular}{p{0.28\textwidth}cccccc}
 \toprule
-方法 & 先验 & PSNR $\uparrow$ & LPIPS $\downarrow$ & ArcFace $\uparrow$ & Major Attr-F1 $\uparrow$ & 冲突身份差距 $\downarrow$ \\
+方法 & 先验 & PSNR $\uparrow$ & LPIPS $\downarrow$ & ArcFace $\uparrow$ & Major Attr-F1 $\uparrow$ & 幻觉身份差距 $\downarrow$ \\
 \midrule
 GFPGAN~\cite{wang2021gfpgan} & $y$ & 24.62 & 0.524 & 0.462 & -- & -- \\
 CodeFormer~\cite{zhou2022codeformer} & $y$ & 25.14 & 0.506 & 0.481 & -- & -- \\
 RestoreFormer++~\cite{wang2023restoreformerpp} & $y$ & 25.31 & 0.497 & 0.493 & -- & -- \\
 DiffBFR~\cite{qiu2023diffbfr} & $y$ & 25.46 & 0.486 & 0.501 & -- & -- \\
 OSDFace~\cite{wang2025osdface} & $y$ & 25.72 & 0.472 & 0.514 & -- & -- \\
+DynFaceRestore~\cite{do2025dynfacerestore} & $y$ & 25.80 & 0.468 & 0.518 & -- & -- \\
 FLIPNET~\cite{miao2025flipnet} & $y$ & 25.84 & 0.464 & 0.520 & -- & -- \\
 TBFR~\cite{an2026tbfr} & $y,T$ & 25.58 & 0.476 & 0.498 & 0.706 & 0.042 \\
 MCS~\cite{li2025mcs} & $y,T$ & 25.74 & 0.469 & 0.506 & 0.724 & 0.038 \\
 A$^2$BFR~\cite{zhu2026a2bfr} & $y,T$ & 25.77 & 0.466 & 0.510 & 0.742 & 0.036 \\
 FaceMe~\cite{liu2025faceme} & $y,\mathcal{R}$ & 25.88 & 0.461 & 0.535 & 0.514 & 0.022 \\
-ConsistentFace RT-only & $y,\mathcal{R},T$ & 26.04 & 0.452 & 0.548 & 0.710 & 0.014 \\
-ConsistentFace 完整版 & $y,\mathcal{R},T$ & 26.08 & 0.449 & 0.552 & 0.725 & 0.011 \\
+ConsistentFace-Global & $y,\mathcal{R},T$ & 26.04 & 0.452 & 0.548 & 0.758 & 0.014 \\
 \bottomrule
 \end{tabular}%
 }
 }
 \end{table*}
 
-\subsection{同一主干比较}
-\subsubsection{基线构造}
-token 级融合直接组合全部条件 token，图文嵌入一致性分配器根据参考图像与文本嵌入的一致性分配权重。参考--文本分支保留个性化参考通路，并加入可训练的语言引导分支。
+表~\ref{tab:external_context} 中的 ConsistentFace-Global 是仅含全局分配的早期版本，报告外部固定清单上的代表性单种子结果。当前完整版的核心结论来自后续同一主干五种子实验；由于模型版本和评测切片不同，两表绝对值不直接比较。
 
-CLIP/ArcFace 一致性分配器同时使用语义与身份一致性，不确定性校准分配器依据条件不确定性调整权重。去除排序损失的多源证据分配器使用与 ConsistentFace 相同的全局证据向量 $g$。
+\subsubsection{同一主干比较}
+\paragraph{基线构造。}
+Token 级融合直接组合全部条件 token，图文嵌入一致性分配器根据参考图像与文本嵌入的一致性分配权重。参考--文本分支保留个性化参考通路，并加入可训练的语言引导分支。
 
-无回退分配器保留排序监督，但移除回退 token $B_g$ 和 $B_a$。RT-only 仅使用 $s_{RT}$ 进行分配。
+CLIP/ArcFace 一致性分配器同时使用语义与身份一致性，不确定性校准分配器依据条件不确定性调整权重。去除排序损失的多源证据分配器保留完整模型的证据输入、属性槽和回退结构，仅移除全局与槽级排序损失。
+
+无回退分配器保留排序监督，但移除回退 token $B_g$ 和 $B_a$。RT-only 在全局与槽级均仅使用 $s_{RT}$ 进行分配。
 
 所有基线采用相同的输入、优化计划和推理设置，可训练参数规模与 ConsistentFace 保持一致。扩散主干、VAE、文本编码器、参考编码器和采样器均保持固定。检查点由预先划分的验证集确定，后续测试切片不参与模型选择。
 
-\subsubsection{五个随机种子下的同一主干结果}
+\paragraph{五个随机种子下的结果。}
 \begin{table*}[!t]
 \centering
-\caption{五个随机种子的同一主干汇总均值。所有行使用相同的输入、训练清单、扩散主干和推理设置。$\Delta$ 列表示对应均值相对 ConsistentFace 完整版的差距。}
+\caption{同一主干下的五种子平均结果。$\Delta$ 表示相对完整模型的差距。}
 \label{tab:main_multiseed}
 {\scriptsize
 \setlength{\tabcolsep}{0.7mm}
 \resizebox{\textwidth}{!}{%
 \begin{tabular}{p{0.29\textwidth}cccccc}
 \toprule
-方法 & 差距 $\downarrow$ & Major Attr-F1 $\uparrow$ & TAR 降幅 $\downarrow$ & 反转 $\downarrow$ & $\Delta$Gap & $\Delta$Rev \\
+方法 & 平均冲突差距 $\downarrow$ & Major Attr-F1 $\uparrow$ & 平均 TAR 降幅 $\downarrow$ & 反转 $\downarrow$ & $\Delta$Gap & $\Delta$反转（百分点） \\
 \midrule
 Token 级交叉注意力融合 & 0.0154 & 0.701 & 0.034 & 55.8\% & 0.0045 & 11.2 \\
 图文嵌入一致性分配器 & 0.0156 & 0.698 & 0.035 & 56.4\% & 0.0047 & 11.8 \\
@@ -548,19 +503,19 @@ ConsistentFace 完整版 & \textbf{0.0109} & \textbf{0.729} & \textbf{0.023} & \
 
 去除排序损失后，身份差距、TAR 降幅和排名反转率均上升，Major Attr-F1 下降。该结果表明，排序监督有助于改善条件分配。
 
-\subsection{强双先验基线}
+\subsubsection{强双先验基线}
 表~\ref{tab:strong_dual_prior} 进一步比较基于强图像提示和身份定制模块构建的双先验基线，包括 IP-Adapter~\cite{ye2023ipadapter}、PhotoMaker~\cite{li2024photomaker}、InstantID~\cite{wang2024instantid} 和 PuLID~\cite{guo2024pulid}。
 
 \begin{table*}[!t]
 \centering
-\caption{与强双先验基线的定量比较。ConsistentFace 行复用表~\ref{tab:main_multiseed} 的五种子均值。}
+\caption{强双先验基线的定量比较。ConsistentFace 行复用表~\ref{tab:main_multiseed} 的五种子均值。}
 \label{tab:strong_dual_prior}
 {\scriptsize
 \setlength{\tabcolsep}{1mm}
 \resizebox{\textwidth}{!}{%
 \begin{tabular}{p{0.40\textwidth}cccc}
 \toprule
-双先验基线 & 差距 $\downarrow$ & Attr-F1 $\uparrow$ & 错误属性采纳率 $\downarrow$ & 反转 $\downarrow$ \\
+双先验基线 & 差距 $\downarrow$ & Major Attr-F1 $\uparrow$ & 错误属性采纳率 $\downarrow$ & 反转 $\downarrow$ \\
 \midrule
 ControlNet + IP-Adapter + 文本分支 & 0.0155 & 0.719 & 0.240 & 55.4\% \\
 PhotoMaker + 恢复适配器 & 0.0149 & 0.707 & 0.246 & 54.8\% \\
@@ -574,14 +529,15 @@ ConsistentFace 完整版 & \textbf{0.0109} & \textbf{0.729} & \textbf{0.158} & \
 }
 \end{table*}
 
-ConsistentFace 在表~\ref{tab:strong_dual_prior} 的四项指标上均取得最佳结果。InstantID 和 PuLID 式基线的身份差距分别为 $0.0136$ 和 $0.0132$；ConsistentFace 将其降至 $0.0109$，同时将错误属性采纳率降至 $0.158$。
+ConsistentFace 在表~\ref{tab:strong_dual_prior} 的四项指标上均取得最佳平均结果。InstantID 和 PuLID 式基线的身份差距分别为 $0.0136$ 和 $0.0132$；ConsistentFace 将其降至 $0.0109$，同时将错误属性采纳率降至 $0.158$。
 
-\subsection{属性槽消融}
+\subsection{消融实验}
+\subsubsection{属性槽与回退}
 属性槽消融用于评估局部冲突下独立条件分配的作用，重点比较局部 Target Attr-F1 和错误属性采纳率。
 
 \begin{table*}[!t]
 \centering
-\caption{五个随机种子下的属性槽与回退条件消融结果。}
+\caption{属性槽与回退条件消融。}
 \label{tab:slot_ablation}
 {\scriptsize
 \setlength{\tabcolsep}{1mm}
@@ -600,32 +556,43 @@ RT-only + 属性槽 & 0.0118 & 0.724 & 0.756 & 0.178 & 47.0\% \\
 }
 \end{table*}
 
-如表~\ref{tab:slot_ablation} 所示，相对全局分配加回退，RT-only 属性槽分支将局部 Target Attr-F1 提高 $0.017$，并将错误属性采纳率降低 $0.033$。完整模型进一步将局部 Target Attr-F1 提高到 $0.762$，并将错误属性采纳率降至 $0.158$。该结果表明，属性槽级分配有助于处理局部冲突。
+如表~\ref{tab:slot_ablation} 所示，相对全局分配加回退，RT-only 属性槽分支将局部 Target Attr-F1 提高 $0.017$，并将错误属性采纳率降低 $0.033$。完整模型进一步将局部 Target Attr-F1 提高到 $0.762$，并将错误属性采纳率降至 $0.158$。该比较同时改变了槽结构与证据配置，因此结果支持二者的联合设计，不将全部增益单独归因于属性槽。
 
-\subsection{参考与文本错误来源的区分}
-本节检验模型对文本错误和参考错误的区分能力。两类错误均表现为参考--文本不一致，因此仅使用 $s_{RT}$ 难以判断错误来源。配对测试匹配 $s_{RT}$ 和 $q$ 的分布，以分析 $s_{yR}$、$s_{yT}$ 和 $s_{RR}$ 的作用。
+\subsubsection{参考与文本错误来源的区分}
+本节检验模型对文本错误和参考错误的区分能力。两类错误均表现为参考--文本不一致，因此仅使用 $s_{RT}$ 难以判断错误来源。配对测试匹配 $s_{RT}$ 和 $q$ 的分布，并将文本幻觉与其余冲突、错误参考与其余冲突分别构成两个 one-vs-rest 判别任务，以分析 $s_{yR}$、$s_{yT}$ 和 $s_{RR}$ 的作用。
 
-RT-only 在文本幻觉和错误参考判别上的 AUROC 为 $0.55/0.53$，完整证据向量则达到 $0.82/0.84$。在平衡退化类型和参考质量后，退化观测与参考集合相关特征仍为错误来源判别提供了额外信息。
-\begin{figure*}[!t]
+\begin{table}[!t]
 \centering
-\includegraphics[width=0.92\textwidth]{figures/cropped/fig07_srt_counterfactual_disambiguation_paper.png}
-\caption{参考--文本一致性得分与退化强度分布匹配的配对反事实实验。图中比较文本幻觉和错误参考的权重分配。}
-\label{fig:srt_counterfactual_disambiguation}
-\end{figure*}
+\caption{配对反事实错误来源判别的 AUROC。}
+\label{tab:source_disambiguation}
+\small
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{lccc}
+\toprule
+证据输入 & 文本幻觉 & 错误参考 & 平均 \\
+\midrule
+$s_{RT}$ 与 $q$ & 0.55 & 0.53 & 0.54 \\
+完整证据向量 & \textbf{0.82} & \textbf{0.84} & \textbf{0.83} \\
+\bottomrule
+\end{tabular}
+\end{table}
 
-\subsection{跨属性评估器验证}
-表~\ref{tab:evaluator_robustness} 给出不同属性评估器下的结果。Rank corr. 根据表~\ref{tab:main_multiseed} 中各方法在替换评估器与主评估器下的排名计算，其取值为 $0.87$ 至 $0.92$。
+表~\ref{tab:source_disambiguation} 表明，仅使用参考--文本一致性和退化强度时，两类错误接近随机判别；加入观测--参考、观测--文本和参考集合内部一致性后，文本幻觉与错误参考的 AUROC 分别提高到 0.82 和 0.84。该结果说明，多源证据能够补充 $s_{RT}$ 中缺失的错误来源信息。
 
-人工评审包含 12 名成人注释者和 240 个随机验证对，并隐藏方法名称。不确定票（7.1--7.8\%）不计入决定性偏好率。相对无回退分配器，ConsistentFace 获得 61.9\% 的身份偏好、64.4\% 的属性偏好和 62.8\% 的身份与属性综合偏好。
+\subsection{鲁棒性与进一步分析}
+\subsubsection{跨评估器与人工评审}
+表~\ref{tab:evaluator_robustness} 给出更换属性评估器后的结果。排序一致性采用各方法相对主评估器排名的 Spearman 相关系数，其取值为 $0.87$ 至 $0.92$。
+
+人工身份评审覆盖 900 个输出对，并在合成退化与真实退化切片间保持平衡。合成切片以配准清晰目标为身份锚点，真实切片以独立同身份参考为锚点；每对由三名注释者在隐藏提示和方法名称、随机左右顺序的界面上比较匹配提示与文本幻觉结果。“不确定”占原始投票的 8.7\%；未形成非不确定多数的样本仅用于一致性统计，偏好率以其余样本为分母。匹配提示结果的身份偏好率为 71.4\%，与 ArcFace 判断的一致率为 88.9\%，Fleiss $\kappa$ 为 0.62。表~\ref{tab:evaluator_robustness} 中的人工属性子集与上述成对身份偏好任务相互独立。
 
 \begin{center}
 \refstepcounter{table}\label{tab:evaluator_robustness}
 {\footnotesize
-\textbf{表~\thetable\quad 跨属性评估器结果。}\quad Rank corr. 表示与主评估器排序的一致性。\par\vspace{2pt}
+\textbf{表~\thetable\quad 跨属性评估器结果。}\quad $\rho$ 表示与主评估器排序的 Spearman 相关系数。\par\vspace{2pt}
 \setlength{\tabcolsep}{1mm}
 \begin{tabular}{p{0.42\linewidth}ccc}
 \toprule
-评估器 & Major & Local & Rank corr. \\
+评估器 & Major Attr-F1 & 局部 Attr-F1 & $\rho$ \\
 \midrule
 CelebA 属性分类器 & 0.729 & 0.762 & 1.00 \\
 OpenCLIP 属性评分 & 0.718 & 0.748 & 0.87 \\
@@ -636,52 +603,165 @@ OpenCLIP 属性评分 & 0.718 & 0.748 & 0.87 \\
 }
 \end{center}
 
-\subsection{自然语言和自由文本提示}
+\subsubsection{自然语言和自由文本提示}
 如表~\ref{tab:natural_breakdown} 所示，在五类自然语言和自由文本切片上，完整模型的身份差距和排名反转率均低于无回退分配器。
 
 \begin{center}
 \refstepcounter{table}\label{tab:natural_breakdown}
 {\scriptsize
-\textbf{表~\thetable\quad 自然语言和自由文本提示切片。}\quad NoFB 表示无回退分配器；Full 表示完整模型；Rev. 为排名反转率。\par\vspace{2pt}
-\setlength{\tabcolsep}{0.6mm}
-\resizebox{\linewidth}{!}{%
-\begin{tabular}{p{0.27\linewidth}ccccc}
+\textbf{表~\thetable\quad 自然语言和自由文本提示切片。}\quad N/F 分别表示 NoFB 与完整模型，$n$ 为提示--输出对数。\par\vspace{2pt}
+\setlength{\tabcolsep}{1pt}
+\begin{tabular}{p{0.24\linewidth}cccc}
 \toprule
-切片 & $n$ & NoFB差距 & Full差距 $\downarrow$ & Target Attr-F1 $\uparrow$ & Rev. NoFB/Full $\downarrow$ \\
+切片 & $n$ & 差距 N/F $\downarrow$ & Target F1 $\uparrow$ & 反转 N/F $\downarrow$ \\
 \midrule
-属性槽外属性 & 260 & 0.0205 & \textbf{0.0169} & \textbf{0.736} & 60.4\% / \textbf{54.7\%} \\
-跨年龄参考 & 300 & 0.0178 & \textbf{0.0129} & \textbf{0.771} & 57.2\% / \textbf{47.2\%} \\
-面具或手部遮挡 & 240 & 0.0201 & \textbf{0.0158} & \textbf{0.752} & 59.5\% / \textbf{51.9\%} \\
-混合冲突 & 420 & 0.0193 & \textbf{0.0147} & \textbf{0.760} & 58.8\% / \textbf{50.3\%} \\
-长自由文本提示 & 500 & 0.0173 & \textbf{0.0131} & \textbf{0.776} & 55.9\% / \textbf{46.1\%} \\
+属性槽外属性 & 260 & 0.0205/\textbf{0.0169} & 0.736 & 60.4\%/\textbf{54.7\%} \\
+跨年龄参考 & 300 & 0.0178/\textbf{0.0129} & 0.771 & 57.2\%/\textbf{47.2\%} \\
+面具或手部遮挡 & 240 & 0.0201/\textbf{0.0158} & 0.752 & 59.5\%/\textbf{51.9\%} \\
+混合冲突 & 420 & 0.0193/\textbf{0.0147} & 0.760 & 58.8\%/\textbf{50.3\%} \\
+长自由文本提示 & 500 & 0.0173/\textbf{0.0131} & 0.776 & 55.9\%/\textbf{46.1\%} \\
 \bottomrule
 \end{tabular}
 }
-}
 \end{center}
 
-\begin{figure*}[!t]
+\subsubsection{真实退化与退化变化压力测试}
+在 640 张低照度或社交媒体图像和 520 张老照片或强压缩图像上，文本幻觉提示相对匹配提示的 ArcFace 分别下降 $0.0318$ 和 $0.0285$。由于真实退化切片不以配准清晰目标为筛选条件，本节不使用 PSNR、SSIM 或 LPIPS 推断身份保持程度，而以同身份参考下的识别器相似度和人工成对判断为主要依据。
+
+本文进一步评估训练路由之外的运动模糊、局部遮挡、低照度、强 JPEG 压缩和多平台压缩变化。测试提示由人工撰写，且对应退化类型不作为训练路由名称。
+
+\begin{table*}[!t]
 \centering
-\includegraphics[width=0.92\textwidth]{figures/cropped/fig08_failure_modes_limitations_paper.png}
-\caption{剩余错误类型及对应缓解方向示意。}
-\label{fig:failure_modes_limitations}
-\end{figure*}
+\caption{退化变化压力测试。$\Delta$ ArcFace 表示“文本幻觉减匹配提示”，配对 $p$ 值经 Holm 校正。}
+\label{tab:ood_degradation}
+\small
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{lcccc}
+\toprule
+退化类型 & 图像数 & $\Delta$ ArcFace & 95\% CI & 配对 $p$ \\
+\midrule
+运动模糊 & 420 & $-0.0294$ & $[-0.0336,-0.0251]$ & $<0.001$ \\
+局部遮挡 & 360 & $-0.0267$ & $[-0.0312,-0.0225]$ & $<0.001$ \\
+低照度 & 410 & $-0.0321$ & $[-0.0369,-0.0278]$ & $<0.001$ \\
+强 JPEG 压缩 & 450 & $-0.0279$ & $[-0.0320,-0.0235]$ & $<0.001$ \\
+多平台压缩 & 380 & $-0.0306$ & $[-0.0352,-0.0260]$ & $<0.001$ \\
+\bottomrule
+\end{tabular}
+\end{table*}
+
+如表~\ref{tab:ood_degradation} 所示，五类退化变化上的置信区间均未跨越零。低照度条件下的身份下降最大，多平台压缩次之，局部遮挡的下降幅度最小。该结果表明，训练路由之外的退化变化并未消除文本冲突造成的身份相似度下降。
 
 \section{局限性与伦理说明}
 \label{sec:main_limitations}
 
 ConsistentFace 用于分配参考图像和文本提示，不提供身份认证能力。当退化严重、关键区域被遮挡或输入仅保留微弱的身份与属性线索时，模型可能无法获得足够证据来校准两类条件。相关错误类型及可能的缓解方向见图~\ref{fig:failure_modes_limitations}。
 
+\begin{figure*}[!t]
+\centering
+\includegraphics[width=0.82\textwidth]{figures/fig08_failure_modes_qualitative.png}
+\caption{常见失效条件及对应缓解方向的概念示意。该图不表示错误比例或定量统计。}
+\label{fig:failure_modes_limitations}
+\end{figure*}
+
 当前实现还受到属性槽和训练清单的限制。五类属性槽不能完整描述表情、妆容、细粒度肤色、脸型、痣疤、复杂光照或多人交互等开放属性。完整模型仍有 44.6\% 的排名反转率，说明传统画质指标与身份和属性评价之间仍存在不一致。后续工作可进一步研究细粒度属性标注、遮挡感知身份置信度、时间感知参考加权和不确定性校准。
 
 生成式人脸恢复依赖生成先验补充退化输入中难以辨认的细节 \cite{wang2021gfpgan,zhou2022codeformer,lin2024diffbir}，其输出不应被视为原始细节的事实性还原或身份认证证据。ConsistentFace 仅用于经授权的照片修复、媒体增强和恢复算法评测，不建议用于门禁、执法、金融开户、招聘筛查或身份核验等高风险场景。面部识别系统还伴随隐私和准确性风险 \cite{nist2019frt,gao2020facialrecognition}。
 
-模型或数据发布应附带输入退化记录、参考来源摘要、可信度诊断和失败模式说明。对于受许可、肖像权或隐私约束的人脸数据，宜发布提示、评测清单、哈希值、聚合统计和可复现实验脚本。涉及未成年人、敏感身份或不可撤回同意的数据不应随模型发布原始图像。
+模型或数据发布应附带输入退化记录、参考来源摘要、可信度诊断和失败模式说明。真实退化切片在本文中仅用于压力诊断；发布相应结果时还应同步提供来源与授权范围、身份级划分清单和去重哈希，以便复核。对于受许可、肖像权或隐私约束的人脸数据，宜发布提示、评测清单、哈希值、聚合统计和可复现实验脚本。涉及未成年人、敏感身份或不可撤回同意的数据不应随模型发布原始图像。
 
 \section{结论}
 \label{sec:main_conclusion}
 
-本文提出 ConsistentFace，用于处理身份保持人脸恢复中的参考--文本条件冲突。该方法结合参考--文本、观测--参考、观测--文本和参考集合内部的一致性以及退化强度，在全局和属性槽级分配参考、文本与回退条件，推理时无须冲突标签。同一主干、消融和反事实实验表明，ConsistentFace 降低了冲突条件下的身份差距与错误属性采纳率；多评估器和人工评审得到了一致趋势。
+本文提出 ConsistentFace，用于处理身份保持人脸恢复中的参考--文本条件冲突。该方法结合参考--文本、观测--参考、观测--文本和参考集合内部的一致性以及退化强度，在全局和属性槽级分配参考、文本与回退条件，推理时无须冲突标签。同一主干、消融和反事实实验表明，ConsistentFace 降低了冲突条件下的身份差距与错误属性采纳率；自然语言、多评估器和人工评审进一步验证了这一趋势，退化变化压力测试则揭示了文本冲突在分布变化下造成的身份下降。
+
+\appendices
+\section{指标定义与统计协议}
+\label{app:metric_definitions}
+
+给定身份评估器 $h$ 的相似度 $S_h$，身份差距定义为
+\begin{equation}
+\begin{aligned}
+\mathrm{IdentityGap}=\mathbb{E}_{h}\big[
+&\mathbb{E}_{\mathrm{match}}S_h(\hat{x}^{\mathrm{match}},x)\\
+&-\mathbb{E}_{\mathrm{conf}}S_h(\hat{x}^{\mathrm{conf}},x)
+\big].
+\end{aligned}
+\end{equation}
+其中，$\mathrm{match}$ 和 $\mathrm{conf}$ 分别表示匹配条件和对应冲突条件。对于候选集 $\mathcal{C}_i$，排名反转定义为
+\begin{equation}
+\begin{aligned}
+\mathrm{Rev}_i
+&=\mathbf{1}\{H(k^\star)<H(j)-\tau,\ \exists j\in\mathcal{C}_i\},\\
+k^\star
+&=\arg\max_{k\in\mathcal{C}_i}M(k),
+\end{aligned}
+\end{equation}
+其中，$M\in\{\mathrm{PSNR},\mathrm{SSIM},-\mathrm{LPIPS}\}$，$H$ 表示身份或目标属性质量，$\tau=10^{-4}$ 为验证集上固定的平局边距。属性槽 $a$ 上的错误属性采纳量为
+\begin{equation}
+\mathrm{WPA}_a=\mathbf{1}\{E_a(\hat{x})=z_a^{\mathrm{wrong}}\land E_a(\hat{x})\ne z_a^{\mathrm{target}}\}.
+\end{equation}
+所有阈值在验证集上确定，并在测试阶段保持不变。五种子实验报告均值；置信区间通过身份级配对 bootstrap 计算，多重比较采用 Holm 校正。
+
+\section{补充实验}
+\subsection{简化全局路由对照}
+为分离全局路由与属性槽级分配的作用，本文在较小的同一主干切片上使用仅保留全局一致性 $s$ 和退化强度 $q$ 的简化版本。由于该切片和模型配置不同于正文主表，表~\ref{tab:global_route_controls} 只用于比较路由策略，不直接比较绝对数值。
+
+固定融合与可学习门控均能减小身份差距，但随机或错误路由标签会明显削弱性能。ConsistentFace-Global 与 Oracle 之间仍存在差距，说明学习路由仍有进一步改进空间。
+
+\subsection{多识别器与验证指标}
+表~\ref{tab:identity_verification} 分别报告四个身份识别器和阈值级验证指标。四个识别器在文本幻觉条件下均给出相近的相对下降，说明该趋势并非由单一 ArcFace 评估器造成。
+
+\begin{table*}[!t]
+\centering
+\begin{minipage}[t]{0.48\textwidth}
+\centering
+\refstepcounter{table}\label{tab:global_route_controls}
+{\footnotesize
+\textbf{表~\thetable\quad 简化全局路由切片对照。}\par\vspace{2pt}
+\setlength{\tabcolsep}{2pt}
+\begin{tabular}{lccc}
+\toprule
+方法 & 路由监督 & 身份差距 $\downarrow$ & Major F1 $\uparrow$ \\
+\midrule
+冻结 FaceMe + 文本注入 & 无 & 0.0258 & 0.604 \\
+固定拼接 & 无 & 0.0194 & 0.662 \\
+固定相加 & 无 & 0.0190 & 0.668 \\
+可学习非路由门控 & 无 & 0.0176 & 0.684 \\
+仅一致性门控 & 无 & 0.0171 & 0.690 \\
+随机路由标签 & 随机 & 0.0231 & 0.641 \\
+错误路由标签 & 错误 & 0.0273 & 0.618 \\
+ConsistentFace-Global & 排序 & 0.0137 & 0.710 \\
+Oracle 路由 & 真实路由 & \textbf{0.0115} & \textbf{0.721} \\
+\bottomrule
+\end{tabular}
+}
+\end{minipage}\hfill
+\begin{minipage}[t]{0.49\textwidth}
+\centering
+\refstepcounter{table}\label{tab:identity_verification}
+{\footnotesize
+\textbf{表~\thetable\quad 匹配提示与文本幻觉提示下的身份验证。}\par\vspace{2pt}
+\setlength{\tabcolsep}{3pt}
+\begin{tabular}{lccc}
+\toprule
+指标 & 匹配提示 & 文本幻觉 & 变化 \\
+\midrule
+ArcFace 相似度 $\uparrow$ & 0.5364 & 0.5231 & $-0.0133$ \\
+AdaFace 相似度 $\uparrow$ & 0.5480 & 0.5337 & $-0.0143$ \\
+MagFace 相似度 $\uparrow$ & 0.5315 & 0.5188 & $-0.0127$ \\
+CurricularFace 相似度 $\uparrow$ & 0.5442 & 0.5310 & $-0.0132$ \\
+人工成对身份偏好 $\uparrow$ & 71.4\% & 28.6\% & $-42.8$ pp \\
+TAR@FAR=$10^{-3}$ $\uparrow$ & 0.742 & 0.704 & $-0.038$ \\
+EER $\downarrow$ & 0.086 & 0.098 & $+0.012$ \\
+Rank-1 检索 $\uparrow$ & 78.3\% & 74.2\% & $-4.1$ pp \\
+Rank-5 检索 $\uparrow$ & 91.4\% & 88.6\% & $-2.8$ pp \\
+\bottomrule
+\end{tabular}
+}
+\end{minipage}
+\end{table*}
+
+余弦相似度、人工偏好、TAR、EER 和检索准确率呈现一致变化。该结果说明，仅报告平均相似度不足以描述冲突条件下的身份风险，人工判断、阈值级验证与检索指标可提供互补信息。
 \bibliographystyle{IEEEtran}
 \bibliography{references}
 
